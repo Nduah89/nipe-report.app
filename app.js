@@ -6191,7 +6191,7 @@
             <label class="field"><span>Tenant code</span><input name="tenant_code" maxlength="60" placeholder="EA-001" required></label>
             <label class="field"><span>Licence reference</span><input name="license_reference" maxlength="80" placeholder="RCE-... (optional)"></label>
             <label class="field"><span>Licence plan</span><select name="license_plan_code" required>${packagePlans.map(item=>`<option value="${attr(item.id)}" data-code="${attr(item.code)}" data-revision="${attr(item.revision||1)}" ${item.code==="enterprise"?"selected":""}>${esc(item.name)} (r${number(item.revision||1)})</option>`).join("")}</select></label>
-            <label class="field"><span>Initial licence status</span><select name="license_status"><option value="pending_activation" selected>Pending activation</option><option value="active" ${String(currentLicense.status||"")==="perpetual"?"":"selected"}>Active</option><option value="perpetual" ${String(currentLicense.status||"")==="perpetual"?"selected":""}>Perpetual</option></select></label>
+            <label class="field"><span>Initial licence status</span><select name="license_status"><option value="pending_activation" selected>Pending activation</option><option value="active">Active</option><option value="perpetual">Perpetual</option></select></label>
             <div id="schoolPackagePlanSummary" class="template-information full"></div>
             <label class="field"><span>Issue date</span><input name="issued_on" type="date" value="${new Date().toISOString().slice(0,10)}" required></label>
             <label class="field"><span>Expiry date and time (optional)</span><input name="expires_at" type="datetime-local"></label>
