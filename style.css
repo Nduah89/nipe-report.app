@@ -896,3 +896,15 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 @media(max-width:1100px){.platform-package-workspace,.platform-license-grid{grid-template-columns:1fr}.platform-tabs{max-width:none}}
 @media(max-width:720px){.platform-tabs{width:100%}.platform-tabs .tab{flex:1;justify-content:center}.platform-register-scroll,.platform-history-scroll{max-height:360px}.package-action-row{min-width:190px}}
 
+
+/* v7.4.0 r4 Licence and Capacity + renewal lifecycle */
+.license-capacity-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.license-capacity-card{display:grid;gap:11px;padding:16px;border:1px solid var(--line);border-radius:14px;background:var(--surface-soft)}
+.license-capacity-card header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.license-capacity-card header>div{display:grid;gap:3px}.license-capacity-card header small,.license-capacity-card>small{color:var(--muted);font-size:11px}
+.license-capacity-value{display:flex;align-items:baseline;gap:6px}.license-capacity-value b{font-size:23px;color:var(--navy)}.license-capacity-value span{color:var(--muted);font-size:12px}
+.detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.detail-grid>div{display:grid;gap:4px;padding:12px;border-radius:11px;background:var(--surface-soft)}.detail-grid span{color:var(--muted);font-size:11px}.detail-grid strong{overflow-wrap:anywhere;font-size:13px}
+.chip-grid{display:flex;flex-wrap:wrap;gap:8px}.license-disabled-features{margin-top:14px}.license-disabled-features summary{cursor:pointer;color:var(--muted);font-size:12px;font-weight:700}.license-disabled-features .chip-grid{margin-top:10px}
+.status.pending{background:#fff0d9;color:#9d5b00}.status.rejected{background:#fde7ea;color:#a82a35}.status.neutral{background:#edf1f6;color:#56647a}.status.perpetual{background:#e3f5ed;color:#08714c}.status.expired,.status.revoked{background:#fde7ea;color:#a82a35}.status.grace_period{background:#fff0d9;color:#9d5b00}
+@media(max-width:1000px){.license-capacity-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:650px){.license-capacity-grid,.detail-grid{grid-template-columns:1fr}}

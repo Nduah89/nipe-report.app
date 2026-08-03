@@ -95,13 +95,14 @@
     {id:"compliance",label:"Privacy and Security",icon:"◈",subtitle:"Retention, privacy requests, security events, and verification",roles:["system_admin","principal"],feature:"governance"},
     {id:"audit",label:"Audit Trail",icon:"◎",subtitle:"Record changes and accountability",permission:"view_audit",feature:"governance"},
     {id:"backup_restore",label:"Backup & Restore",icon:"↻",subtitle:"Downloadable full-school continuity and disaster recovery",roles:["system_admin"]},
+    {id:"license_capacity",label:"Licence and Capacity",icon:"◫",subtitle:"Read-only licence status, limits, usage, and verification",roles:["system_admin"]},
     {id:"settings",label:"Settings",icon:"⚙",subtitle:"School identity, security, and resilience",roles:["system_admin"]},
     {id:"github",label:"GitHub Navigator",icon:"⌁",subtitle:"Protected package generation and deployment controls",roles:["platform_super_admin"]}
   ];
 
   const ROLE_NAV_IDS = Object.freeze({
     platform_super_admin:["licensing","github"],
-    system_admin:["dashboard","operations","students","history","teachers","headteachers","academics","delegations","reports","certificates","insights","users","notifications","compliance","audit","backup_restore","settings"],
+    system_admin:["dashboard","operations","students","history","teachers","headteachers","academics","delegations","reports","certificates","insights","users","notifications","compliance","audit","backup_restore","license_capacity","settings"],
     principal:["dashboard","operations","history","delegations","reports","certificates","insights","notifications","compliance"],
     class_teacher:["dashboard","my_class","attendance","my_subjects","students","history","reports","insights","notifications"],
     subject_teacher:["dashboard","my_subjects","students","history","reports","insights","notifications"],
@@ -121,7 +122,7 @@
     packageLogoPreviewUrl:"", packageGeneratorBusy:false, packageGenerationKey:"", platformPackageOffset:0, platformPackageLimit:50, platformPackageSearch:"", bulkReportPackageBusy:false,
     licenseRefreshTimer:null, licenseRefreshBusy:false, lastLicenseVerifiedAt:0,
     attendanceTermId:"", attendanceClassId:"", attendanceDate:"", attendanceData:null,
-    licenseConsole:null, platformPackageConsole:null, delegationConsole:null, myEmergencyDelegations:[],
+    licenseConsole:null, schoolLicenseCapacity:null, platformPackageConsole:null, delegationConsole:null, myEmergencyDelegations:[],
     operationsConsole:null, historyStudentId:"", historyData:null, historyStudents:null, complianceConsole:null, analyticsData:null,
     certificateConsole:null, certificateConsoleYear:"", certificateConsoleType:"", certificateBatch:null, certificateBusy:false,
     certificateSettingsTemplates:[], certificateTemplateCanvases:new Map()
@@ -651,7 +652,7 @@
     stopGeneratedLicenseRefresh();
     disconnectRealtime();
     await state.client?.auth.signOut();
-    state.boot=null;state.session=null;state.initialized=false;state.reportTemplates=null;state.reportTemplatesLoadedAt=0;state.licenseConsole=null;state.platformPackageConsole=null;state.platformPackageOffset=0;state.platformPackageSearch="";state.packageGenerationKey="";state.licenseRefreshBusy=false;state.lastLicenseVerifiedAt=0;state.delegationConsole=null;state.myEmergencyDelegations=[];state.operationsConsole=null;state.historyStudentId="";state.historyData=null;state.historyStudents=null;state.complianceConsole=null;state.analyticsData=null;state.certificateConsole=null;state.certificateBatch=null;state.certificateSettingsTemplates=[];state.certificateTemplateCanvases.clear();
+    state.boot=null;state.session=null;state.initialized=false;state.reportTemplates=null;state.reportTemplatesLoadedAt=0;state.licenseConsole=null;state.schoolLicenseCapacity=null;state.platformPackageConsole=null;state.platformPackageOffset=0;state.platformPackageSearch="";state.packageGenerationKey="";state.licenseRefreshBusy=false;state.lastLicenseVerifiedAt=0;state.delegationConsole=null;state.myEmergencyDelegations=[];state.operationsConsole=null;state.historyStudentId="";state.historyData=null;state.historyStudents=null;state.complianceConsole=null;state.analyticsData=null;state.certificateConsole=null;state.certificateBatch=null;state.certificateSettingsTemplates=[];state.certificateTemplateCanvases.clear();
     clearPrivateStorageCaches();
     showOnly("authView");setLoading(false);
   }
@@ -845,7 +846,7 @@
     try {
       const renderer={
         dashboard:renderDashboard,operations:renderOperations,licensing:renderLicensing,my_class:renderMyClass,attendance:renderAttendance,my_subjects:renderMySubjects,students:renderStudents,history:renderAcademicHistory,teachers:renderTeachers,headteachers:renderPrincipals,academics:renderAcademics,delegations:renderEmergencyDelegations,reports:renderReports,certificates:renderCertificates,insights:renderInsights,
-        children:renderChildren,users:renderUsers,notifications:renderNotifications,compliance:renderCompliance,audit:renderAudit,backup_restore:renderBackupRestore,settings:renderSettings,github:renderGithubNavigator
+        children:renderChildren,users:renderUsers,notifications:renderNotifications,compliance:renderCompliance,audit:renderAudit,backup_restore:renderBackupRestore,license_capacity:renderSchoolLicenseCapacity,settings:renderSettings,github:renderGithubNavigator
       }[view];
       await renderer?.(token,force);
       if(token===state.viewToken&&role()!=="platform_super_admin") {const banner=licenseBannerHtml();if(banner)byId("content")?.insertAdjacentHTML("afterbegin",banner);}
@@ -5626,6 +5627,75 @@
   function exportTranscriptCsv(snapshot){const student=snapshot.student||{},headers=["academic_year","term","class","subject","score","grade","remark","days_present","days_opened","report_number"];const rows=[];(snapshot.academic_records||[]).forEach(record=>(record.subjects||[]).forEach(subject=>rows.push([record.academic_year_name,record.term_name,record.class_name,subject.subject_name,subject.total_score,subject.grade,subject.remark,record.days_present,record.days_school_opened,record.report_number])));downloadText(`${slugify(student.full_name||"student")}-transcript.csv`,[headers.join(","),...rows.map(row=>row.map(csvCell).join(","))].join("\n"),"text/csv")}
   function recordLifecycleEvent(){const classes=state.boot.classes||[];modal("Record student lifecycle event","Transfer, withdrawal, graduation, inactivity, or reactivation is preserved as immutable history.",`<form id="lifecycleForm" class="form-grid"><label class="field"><span>Event</span><select name="event_type">${["transfer_in","transfer_out","withdrawn","graduated","inactive","reactivated","archived"].map(value=>`<option value="${value}">${esc(statusText(value))}</option>`).join("")}</select></label><label class="field"><span>Effective date</span><input type="date" name="effective_date" value="${localDateValue()}"></label><label class="field"><span>Destination or new class</span><select name="to_class_id">${optionList(classes,"id","name","","Not applicable")}</select></label><label class="field"><span>Destination school</span><input name="destination_school"></label><label class="field full"><span>Reference</span><input name="reference"></label><label class="field full"><span>Reason</span><textarea name="reason" required></textarea></label></form>`,`<button class="button ghost" id="lifecycleCancel">Cancel</button><button class="button primary" id="lifecycleSave">Save event</button>`,"small");byId("lifecycleCancel").onclick=closeModal;byId("lifecycleSave").onclick=async()=>{const form=byId("lifecycleForm"),values=formObject(form);if(values.reason.trim().length<5){toast("Reason required","Provide at least five characters.","error");return}const button=byId("lifecycleSave");button.disabled=true;try{await rpc("record_student_lifecycle_event",{payload:{student_id:state.historyStudentId,...values}});closeModal();toast("Lifecycle event recorded");state.historyData=null;state.workspace=null;await renderAcademicHistory(state.viewToken,true)}catch(error){toast("Lifecycle event not saved",friendlyError(error),"error")}finally{button.disabled=false}}}
 
+
+  function capacityDisplayValue(value,unit="records") {
+    if(value===null||value===undefined||value==="")return "Unlimited";
+    const numeric=Number(value);if(!Number.isFinite(numeric))return "Unlimited";
+    return unit==="MB"?`${number(numeric,2)} MB`:number(numeric);
+  }
+  function capacityPercent(used,limit) {
+    const u=Number(used||0),l=Number(limit);
+    if(!Number.isFinite(l)||l<=0)return 0;
+    return Math.max(0,Math.min(100,u/l*100));
+  }
+  function capacityStateLabel(used,limit) {
+    const l=Number(limit),u=Number(used||0);
+    if(!Number.isFinite(l))return {label:"Unlimited",className:"approved"};
+    if(u>=l)return {label:"At capacity",className:"rejected"};
+    if(l>0&&u/l>=.8)return {label:"Approaching limit",className:"pending"};
+    return {label:"Available",className:"approved"};
+  }
+  function featureFlagLabel(value="") {
+    return String(value||"").replaceAll("_"," ").replace(/\b\w/g,char=>char.toUpperCase());
+  }
+  async function renderSchoolLicenseCapacity(token,force=false) {
+    if(role()!=="system_admin")throw new Error("School System Administrator access required");
+    if(force||!state.schoolLicenseCapacity)state.schoolLicenseCapacity=await rpc("get_school_license_capacity_console");
+    if(token!==state.viewToken)return;
+    const data=state.schoolLicenseCapacity||{},snapshot=data.snapshot||{},plan=data.plan||{},capacity=Array.isArray(data.capacity)?data.capacity:[],features=data.feature_flags&&typeof data.feature_flags==="object"?data.feature_flags:{},storage=Array.isArray(data.storage_buckets)?data.storage_buckets:[],history=Array.isArray(data.verification_history)?data.verification_history:[];
+    const status=String(snapshot.computed_status||"unknown"),accessMode=String(snapshot.access_mode||"unknown"),activeFeatures=Object.entries(features).filter(([,enabled])=>enabled===true),disabledFeatures=Object.entries(features).filter(([,enabled])=>enabled!==true);
+    const expiryText=snapshot.expires_at?isoDateTime(snapshot.expires_at):status==="perpetual"||String(plan.billing_cycle||"")==="perpetual"?"No expiry":"Not specified";
+    const daysRemaining=snapshot.days_remaining===null||snapshot.days_remaining===undefined?"—":number(snapshot.days_remaining);
+    byId("content").innerHTML=`
+      <div class="page-head"><div><h3>Licence and Capacity</h3><p>Read-only visibility into the school entitlement, limits, usage, and verification health.</p></div><div class="page-actions"><button class="button secondary" id="licenseCapacityRefresh" type="button">Refresh status</button></div></div>
+      <section class="panel pad">
+        <div class="section-title"><div><h4>${esc(plan.name||plan.code||"School licence")}</h4><p>${esc(snapshot.license_reference||"No licence reference")}</p></div><div>${statusBadge(status)}</div></div>
+        ${snapshot.warning?`<div class="template-information warning"><strong>Licence attention</strong><span>${esc(snapshot.warning)}</span></div>`:`<div class="template-information success"><strong>Licence status verified</strong><span>The page is read-only. Licence changes can only be issued by the Platform Super Administrator through a signed renewal or upgrade package.</span></div>`}
+        <div class="metric-row wrap" style="margin-top:14px">
+          <div class="metric"><span>Access mode</span><strong>${esc(licenseStatusLabel(accessMode))}</strong><small>${snapshot.write_allowed===false?"Writes restricted":"Writes permitted"}</small></div>
+          <div class="metric"><span>Issue date</span><strong>${esc(isoDate(snapshot.issued_on))}</strong><small>Activated ${esc(isoDateTime(snapshot.activated_at))}</small></div>
+          <div class="metric"><span>Expiry</span><strong>${esc(expiryText)}</strong><small>${esc(daysRemaining)} days remaining</small></div>
+          <div class="metric"><span>Plan revision</span><strong>${esc(String(plan.revision||snapshot.plan_revision||"—"))}</strong><small>${esc(String(plan.billing_cycle||"custom"))} billing</small></div>
+        </div>
+      </section>
+      <section class="panel pad" style="margin-top:18px"><div class="section-title"><div><h4>Capacity usage</h4><p>Current active usage against the signed entitlement. Unlimited limits remain unrestricted.</p></div></div>
+        ${capacity.length?`<div class="license-capacity-grid">${capacity.map(item=>{const stateInfo=capacityStateLabel(item.used,item.limit),percent=capacityPercent(item.used,item.limit),remaining=item.limit===null||item.limit===undefined?"Unlimited":Math.max(Number(item.limit||0)-Number(item.used||0),0);return `<article class="license-capacity-card"><header><div><strong>${esc(item.label||item.key)}</strong><small>${esc(item.unit||"records")}</small></div><span class="status ${attr(stateInfo.className)}">${esc(stateInfo.label)}</span></header><div class="license-capacity-value"><b>${esc(capacityDisplayValue(item.used,item.unit))}</b><span>of ${esc(capacityDisplayValue(item.limit,item.unit))}</span></div>${Number.isFinite(Number(item.limit))?`<div class="bar-track" aria-label="${attr(number(percent,1))}% used"><span style="width:${percent}%"></span></div><small>${esc(capacityDisplayValue(remaining,item.unit))} remaining • ${number(percent,1)}% used</small>`:`<div class="bar-track"><span style="width:0%"></span></div><small>No signed maximum</small>`}</article>`}).join("")}</div>`:emptyState("No capacity data is available")}
+      </section>
+      <div class="grid two" style="margin-top:18px">
+        <section class="panel pad"><div class="section-title"><div><h4>Verification and binding</h4><p>Cryptographic and central-authority checks for this installation.</p></div></div>
+          <div class="detail-grid">
+            <div><span>Signature</span><strong>${esc(licenseStatusLabel(snapshot.signature_status||"unknown"))}</strong></div>
+            <div><span>Authority</span><strong>${esc(licenseStatusLabel(snapshot.authority_status||"unknown"))}</strong></div>
+            <div><span>Authority last success</span><strong>${esc(isoDateTime(snapshot.authority_last_success_at))}</strong></div>
+            <div><span>Binding</span><strong>${snapshot.binding_verified===true?"Verified":"Attention required"}</strong></div>
+            <div><span>Tenant code</span><strong>${esc(snapshot.tenant_code||CONFIG.tenantCode||"—")}</strong></div>
+            <div><span>Project reference</span><strong>${esc(snapshot.project_ref||CONFIG.projectRef||"—")}</strong></div>
+            <div><span>Package ID</span><strong><code>${esc(snapshot.package_id||"—")}</code></strong></div>
+            <div><span>Signing key</span><strong><code>${esc(snapshot.signature_key_id||"—")}</code></strong></div>
+          </div>
+        </section>
+        <section class="panel pad"><div class="section-title"><div><h4>Enabled features</h4><p>Features included in the current signed plan revision.</p></div></div>
+          ${activeFeatures.length?`<div class="chip-grid">${activeFeatures.map(([key])=>`<span class="chip success">${esc(featureFlagLabel(key))}</span>`).join("")}</div>`:emptyState("No feature flags are enabled")}
+          ${disabledFeatures.length?`<details class="license-disabled-features"><summary>${number(disabledFeatures.length)} unavailable feature${disabledFeatures.length===1?"":"s"}</summary><div class="chip-grid">${disabledFeatures.map(([key])=>`<span class="chip">${esc(featureFlagLabel(key))}</span>`).join("")}</div></details>`:""}
+        </section>
+      </div>
+      <div class="grid two" style="margin-top:18px">
+        <section class="panel pad"><div class="section-title"><div><h4>Private Storage usage</h4><p>Object count and measured size by licensed school bucket.</p></div></div>${storage.length?`<div class="table-wrap"><table><thead><tr><th>Bucket</th><th>Objects</th><th>Usage</th></tr></thead><tbody>${storage.map(item=>`<tr><td>${esc(item.bucket_id)}</td><td>${number(item.object_count)}</td><td>${number(item.storage_mb,2)} MB</td></tr>`).join("")}</tbody></table></div>`:emptyState("No stored objects yet")}</section>
+        <section class="panel pad"><div class="section-title"><div><h4>Recent verification history</h4><p>The latest licence checks recorded by this school project.</p></div></div>${history.length?`<div class="table-wrap"><table><thead><tr><th>Checked</th><th>Status</th><th>Access</th><th>Source</th></tr></thead><tbody>${history.slice(0,10).map(item=>`<tr><td>${esc(isoDateTime(item.created_at))}</td><td>${statusBadge(item.computed_status)}</td><td>${esc(licenseStatusLabel(item.access_mode))}</td><td>${esc(item.verification_source||"—")}</td></tr>`).join("")}</tbody></table></div>`:emptyState("No verification history recorded yet")}</section>
+      </div>`;
+    byId("licenseCapacityRefresh").onclick=async()=>{const button=byId("licenseCapacityRefresh");button.disabled=true;button.textContent="Refreshing";try{if(CONFIG.generatedSchoolPackage)await refreshGeneratedLicenseBinding(true).catch(()=>{});state.schoolLicenseCapacity=null;await renderSchoolLicenseCapacity(state.viewToken,true);toast("Licence status refreshed")}catch(error){toast("Licence status not refreshed",friendlyError(error),"error",8000)}finally{if(button){button.disabled=false;button.textContent="Refresh status"}}};
+  }
+
   async function renderInsights(token,force=false) {
     const termId=state.analyticsData?.term_id||activeTerm()?.id||(state.boot.terms||[])[0]?.id||"",visibleClasses=await visibleClassesForCurrentRole(),classId=state.analyticsData?.class_id||"";
     const data=await rpc("academic_analytics",{target_term_id:termId,target_class_id:classId||null});if(token!==state.viewToken)return;state.analyticsData={...data,term_id:termId,class_id:classId};const summary=data.summary||{};
@@ -5690,6 +5760,32 @@
     if(value==="ready")return '<span class="status approved">Ready</span>';
     if(value==="revoked")return '<span class="status rejected">Revoked</span>';
     return `<span class="status draft">${esc(value||"Unknown")}</span>`;
+  }
+  function platformPackageLifecycleLabel(item={}) {
+    const action=String(item.lifecycle_action||item.metadata?.lifecycle?.action||"initial");
+    const sequence=Number(item.renewal_sequence||item.metadata?.lifecycle?.renewal_sequence||0);
+    if(action==="initial")return "Initial issue";
+    return `${licenseStatusLabel(action)}${sequence?` R${sequence}`:""}`;
+  }
+  function platformPackageActionButtons(item,canGenerate=false,canRevoke=false,hasOpenReplacement=false) {
+    const ready=item.status==="ready"&&item.deletion_state==="none",replacement=Boolean(item.supersedes_artifact_id),superseded=Boolean(item.superseded_by_artifact_id),finalized=Boolean(item.metadata?.lifecycle?.finalized_at);
+    const activeAuthority=ready&&!superseded&&(!replacement||finalized),pendingReplacement=ready&&replacement&&!finalized;
+    const actions=[];
+    if(ready)actions.push(`<button class="button secondary small" data-package-download="${attr(item.id)}">Download</button>`);
+    if(pendingReplacement&&canRevoke){
+      if(item.authority_last_checked_at)actions.push(`<button class="button success small" data-package-finalize="${attr(item.id)}">Finalize replacement</button>`);
+      else actions.push('<span class="status pending">Awaiting school verification</span>');
+    }
+    if(activeAuthority&&canGenerate){
+      if(hasOpenReplacement)actions.push('<span class="status pending">Replacement pending</span>');
+      else actions.push(`<button class="button primary small" data-package-renew="${attr(item.id)}">Renew / Upgrade</button>`);
+    }
+    if(ready&&finalized)actions.push('<span class="status approved">Active replacement</span>');
+    if(ready&&canRevoke)actions.push(`<button class="button warning small" data-package-revoke="${attr(item.id)}">${pendingReplacement?"Cancel replacement":"Revoke"}</button>`);
+    if(item.status==="revoked"&&item.deletion_state==="none"&&canRevoke&&!superseded)actions.push(`<button class="button success small" data-package-restore="${attr(item.id)}">Restore</button>`);
+    if(item.status!=="deleted"&&canRevoke)actions.push(`<button class="button danger small" data-package-delete="${attr(item.id)}">Delete permanently</button>`);
+    if(item.status==="deleted")actions.push('<span class="status neutral">Receipt retained</span>');
+    return actions.join("");
   }
   function platformSectionTabs(active="licensing") {
     const items=[
@@ -6060,6 +6156,7 @@
     if(force||!state.platformPackageConsole)state.platformPackageConsole=await invokePlatformPackageManager("status",{offset:state.platformPackageOffset,limit:state.platformPackageLimit,search:state.platformPackageSearch});
     if(token!==state.viewToken)return;
     const consoleData=state.platformPackageConsole||{},template=consoleData.template,artifacts=consoleData.artifacts||[],events=consoleData.events||[],archives=consoleData.archives||[],packagePlans=consoleData.plans||[],storageCapacity=consoleData.storage_capacity||{},signingStatus=consoleData.signing||{},signingReady=signingStatus.ready===true,releaseHealth=consoleData.release_health||{},canGenerate=consoleData.can_generate===true,canRevoke=consoleData.can_revoke===true,generationBlockers=platformPackageGenerationBlockers(consoleData);
+    const readyReplacementTargets=new Set(artifacts.filter(item=>item.status==="ready"&&item.deletion_state==="none"&&item.supersedes_artifact_id).map(item=>String(item.supersedes_artifact_id)));
     byId("content").innerHTML=`
       <div class="page-head platform-page-head"><div><h3>GitHub Navigator</h3><p>Platform-owner-only reusable package control</p></div><div class="button-row"><button class="button ghost" id="platformPackageRefresh" type="button">Refresh</button></div></div>
       ${platformSectionTabs("github")}
@@ -6094,7 +6191,7 @@
             <label class="field"><span>Tenant code</span><input name="tenant_code" maxlength="60" placeholder="EA-001" required></label>
             <label class="field"><span>Licence reference</span><input name="license_reference" maxlength="80" placeholder="RCE-... (optional)"></label>
             <label class="field"><span>Licence plan</span><select name="license_plan_code" required>${packagePlans.map(item=>`<option value="${attr(item.id)}" data-code="${attr(item.code)}" data-revision="${attr(item.revision||1)}" ${item.code==="enterprise"?"selected":""}>${esc(item.name)} (r${number(item.revision||1)})</option>`).join("")}</select></label>
-            <label class="field"><span>Initial licence status</span><select name="license_status"><option value="pending_activation" selected>Pending activation</option><option value="active">Active</option><option value="perpetual">Perpetual</option></select></label>
+            <label class="field"><span>Initial licence status</span><select name="license_status"><option value="pending_activation" selected>Pending activation</option><option value="active" ${String(currentLicense.status||"")==="perpetual"?"":"selected"}>Active</option><option value="perpetual" ${String(currentLicense.status||"")==="perpetual"?"selected":""}>Perpetual</option></select></label>
             <div id="schoolPackagePlanSummary" class="template-information full"></div>
             <label class="field"><span>Issue date</span><input name="issued_on" type="date" value="${new Date().toISOString().slice(0,10)}" required></label>
             <label class="field"><span>Expiry date and time (optional)</span><input name="expires_at" type="datetime-local"></label>
@@ -6125,7 +6222,7 @@
       <section class="panel platform-register-panel" style="margin-top:18px">
         <div class="panel-header"><div><h3>Generated package register</h3><p>Private artifacts and authorized-download history</p></div><span class="status approved">${number(consoleData.artifact_count??artifacts.length)} records</span></div>
         <div class="platform-register-controls"><label class="field"><span>Search packages</span><input id="platformPackageSearch" value="${attr(state.platformPackageSearch)}" placeholder="School, tenant, licence, or filename"></label><div class="button-row"><button class="button secondary small" id="platformPackageSearchApply" type="button">Search</button><button class="button ghost small" id="platformPackageSearchClear" type="button" ${state.platformPackageSearch?"":"disabled"}>Clear</button></div><div class="button-row"><button class="button ghost small" id="platformPackagePrevious" type="button" ${state.platformPackageOffset<=0?"disabled":""}>Previous</button><span class="status neutral">${number(state.platformPackageOffset+1)}-${number(Math.min(state.platformPackageOffset+artifacts.length,consoleData.artifact_count??artifacts.length))}</span><button class="button ghost small" id="platformPackageNext" type="button" ${state.platformPackageOffset+artifacts.length>=(consoleData.artifact_count??artifacts.length)?"disabled":""}>Next</button></div></div>
-        <div class="table-wrap platform-register-scroll"><table><thead><tr><th>Generated</th><th>School and tenant</th><th>Licence</th><th>Package</th><th>Status</th><th>Actions</th></tr></thead><tbody>${artifacts.length?artifacts.map(item=>`<tr><td>${esc(isoDateTime(item.generated_at))}</td><td><strong>${esc(item.school_name)}</strong><br><small>${esc(item.tenant_code)}${item.authorized_domain?` • ${esc(item.authorized_domain)}`:""}</small></td><td>${esc(item.license_reference)}<br><small>${esc(item.license_plan_code)}</small></td><td><span class="package-filename">${esc(item.filename)}</span><br><small>${readableBytes(item.file_size)} • ${number(item.download_count)} downloads${item.metadata?.android_distribution?.included?` • Android ${esc(item.metadata.android_distribution.application_id||"profile")}`:""}${item.metadata?.windows_distribution?.included?` • Windows ${esc(item.metadata.windows_distribution.product_id||"w1")}`:""}</small></td><td>${platformPackageStatusLabel(item.status)}${item.revocation_reason?`<br><small>${esc(item.revocation_reason)}</small>`:""}</td><td><div class="button-row compact package-action-row">${item.status==="ready"?`<button class="button secondary small" data-package-download="${attr(item.id)}">Download</button>${canRevoke?`<button class="button warning small" data-package-revoke="${attr(item.id)}">Revoke</button>`:""}`:item.status==="revoked"&&item.deletion_state==="none"&&canRevoke?`<button class="button success small" data-package-restore="${attr(item.id)}">Restore</button>`:""}${item.status!=="deleted"&&canRevoke?`<button class="button danger small" data-package-delete="${attr(item.id)}">Delete permanently</button>`:item.status==="deleted"?`<span class="status neutral">Receipt retained</span>`:""}</div></td></tr>`).join(""):`<tr><td colspan="6"><div class="empty">No protected package has been generated</div></td></tr>`}</tbody></table></div>
+        <div class="table-wrap platform-register-scroll"><table><thead><tr><th>Generated</th><th>School and tenant</th><th>Licence</th><th>Package</th><th>Status</th><th>Actions</th></tr></thead><tbody>${artifacts.length?artifacts.map(item=>`<tr><td>${esc(isoDateTime(item.generated_at))}<br><small>${esc(platformPackageLifecycleLabel(item))}</small></td><td><strong>${esc(item.school_name)}</strong><br><small>${esc(item.tenant_code)}${item.authorized_domain?` • ${esc(item.authorized_domain)}`:""}</small></td><td>${esc(item.license_reference)}<br><small>${esc(item.license_plan_code)} • revision ${number(item.plan_revision||1)}</small>${item.supersedes_artifact_id?`<br><small>Replaces ${esc(String(item.metadata?.lifecycle?.supersedes_package_id||item.supersedes_artifact_id).slice(0,18))}…</small>`:""}</td><td><span class="package-filename">${esc(item.filename)}</span><br><small>${readableBytes(item.file_size)} • ${number(item.download_count)} downloads${item.metadata?.android_distribution?.included?` • Android ${esc(item.metadata.android_distribution.application_id||"profile")}`:""}${item.metadata?.windows_distribution?.included?` • Windows ${esc(item.metadata.windows_distribution.product_id||"w1")}`:""}</small></td><td>${platformPackageStatusLabel(item.status)}${item.authority_last_checked_at?`<br><small>School verified ${esc(isoDateTime(item.authority_last_checked_at))}</small>`:""}${item.superseded_at?`<br><small>Superseded ${esc(isoDateTime(item.superseded_at))}</small>`:""}${item.revocation_reason?`<br><small>${esc(item.revocation_reason)}</small>`:""}</td><td><div class="button-row compact package-action-row">${platformPackageActionButtons(item,canGenerate,canRevoke,readyReplacementTargets.has(String(item.id)))}</div></td></tr>`).join(""):`<tr><td colspan="6"><div class="empty">No protected package has been generated</div></td></tr>`}</tbody></table></div>
       </section>
       <section class="panel platform-history-panel" style="margin-top:18px">
         <div class="panel-header"><div><h3>Package security audit</h3><p>Latest 200 package security events</p></div><div class="button-row"><button class="button danger small" id="packageAuditClear" type="button" ${(events.length||archives.length)&&canRevoke?"":"disabled"}>Clear all history</button></div></div>
@@ -6171,6 +6268,8 @@
     byId("platformPackageNext").onclick=()=>{state.platformPackageOffset+=state.platformPackageLimit;state.platformPackageConsole=null;renderGithubNavigator(state.viewToken,true)};
     if(canGenerate)byId("generateSchoolPackage").onclick=generateReusableSchoolPackage;
     $$('[data-package-download]').forEach(button=>button.onclick=()=>downloadProtectedPackage(button.dataset.packageDownload,button));
+    $$('[data-package-renew]').forEach(button=>button.onclick=()=>renewOrUpgradeProtectedPackage(button.dataset.packageRenew,button));
+    $$('[data-package-finalize]').forEach(button=>button.onclick=()=>finalizeReplacementProtectedPackage(button.dataset.packageFinalize,button));
     $$('[data-package-revoke]').forEach(button=>button.onclick=()=>revokeProtectedPackage(button.dataset.packageRevoke,button));
     $$('[data-package-restore]').forEach(button=>button.onclick=()=>restoreProtectedPackage(button.dataset.packageRestore,button));
     $$('[data-package-delete]').forEach(button=>button.onclick=()=>deleteProtectedPackage(button.dataset.packageDelete,button));
@@ -6300,6 +6399,46 @@
       toast("Protected package generated",`${data.artifact.filename} is ready. The signed download URL expires in ${number(data.expires_in)} seconds.`,"success",9000);state.platformPackageConsole=null;setSync("online","Synced");await renderGithubNavigator(state.viewToken,true);
     }catch(error){toast("Package not generated",friendlyError(error),"error",9000);setSync("pending","Retry required");await reportClientError(error,{source:"platform_package_manager"})}
     finally{state.packageGeneratorBusy=false;button.disabled=false;button.textContent=originalButtonText;progress.classList.add("hidden")}
+  }
+
+
+  function renewalCapacityText(plan={}) {
+    return [`Students ${plan.max_students??"Unlimited"}`,`Teachers ${plan.max_teachers??"Unlimited"}`,`Administrators ${plan.max_system_admins??"Unlimited"}`,`Guardians ${plan.max_guardians??"Unlimited"}`,`Storage ${plan.max_storage_mb==null?"Unlimited":`${number(plan.max_storage_mb)} MB`}`].join(" • ");
+  }
+  function renewalDefaultExpiry(plan={},previousExpiry="") {
+    if(String(plan.billing_cycle||"")==="perpetual")return "";
+    const previousTime=previousExpiry?new Date(previousExpiry).getTime():Number.NaN;
+    const base=Math.max(Date.now(),Number.isFinite(previousTime)?previousTime:0);
+    return dateTimeLocalValue(new Date(base+Number(plan.default_term_days||365)*86400000));
+  }
+  function renewOrUpgradeProtectedPackage(artifactId,button) {
+    const consoleData=state.platformPackageConsole||{},artifact=(consoleData.artifacts||[]).find(item=>String(item.id)===String(artifactId));
+    if(!artifact){toast("Package not found","Refresh GitHub Navigator and try again.","error");return}
+    const plans=(consoleData.plans||[]).filter(item=>item.active!==false),entitlement=artifact.entitlement_snapshot||{},currentPlan=entitlement.plan||{},currentLicense=entitlement.license||{};
+    const selectedPlan=plans.find(item=>String(item.id)===String(currentPlan.id))||plans.find(item=>String(item.code)===String(artifact.license_plan_code))||plans[0];
+    if(!selectedPlan){toast("No active plan","Create or activate a licence plan before renewing.","error");return}
+    const sequence=Number(artifact.renewal_sequence||artifact.metadata?.lifecycle?.renewal_sequence||0)+1,referenceBase=String(artifact.license_reference||"RCE-LICENCE").replace(/-R\d+$/i,""),defaultReference=`${referenceBase}-R${sequence}`;
+    modal("Renew or Upgrade School Licence",`${artifact.school_name} • ${artifact.tenant_code}. A new signed replacement package will be generated. The current package stays active until the replacement is installed, verified, and finalized.`,`<form id="packageRenewForm" class="form-grid">
+      <div class="template-information full"><strong>Current signed entitlement</strong><span>${esc(currentPlan.name||artifact.license_plan_code)} • ${esc(renewalCapacityText(currentPlan))}</span><small>Current expiry: ${esc(currentLicense.expires_at?isoDateTime(currentLicense.expires_at):"No expiry")} • Package ${esc(String(artifact.package_id||"").slice(0,18))}…</small></div>
+      <label class="field full"><span>New licence plan</span><select name="license_plan_id" required>${plans.map(plan=>`<option value="${attr(plan.id)}" data-revision="${attr(plan.revision||1)}" ${String(plan.id)===String(selectedPlan.id)?"selected":""}>${esc(plan.name)} • revision ${number(plan.revision||1)}</option>`).join("")}</select><small id="packageRenewPlanSummary"></small></label>
+      <label class="field"><span>Licence status</span><select name="license_status"><option value="active" ${String(currentLicense.status||"")==="perpetual"?"":"selected"}>Active</option><option value="perpetual" ${String(currentLicense.status||"")==="perpetual"?"selected":""}>Perpetual</option></select></label>
+      <label class="field"><span>Issue date</span><input name="issued_on" type="date" value="${attr(new Date().toISOString().slice(0,10))}" required></label>
+      <label class="field"><span>New expiry date and time</span><input name="expires_at" type="datetime-local"></label>
+      <label class="field"><span>Renewal reference</span><input name="license_reference" maxlength="80" value="${attr(defaultReference)}" required></label>
+      <label class="field full"><span>Renewal or upgrade reason</span><textarea name="reason" minlength="5" required placeholder="Example: Annual renewal and increased student capacity"></textarea></label>
+      <div class="template-information warning full"><strong>Safe replacement workflow</strong><span>No student, teacher, report, Storage, or school-setting data is changed. Capacity and enabled features cannot be reduced by this action. Install and verify the new package before finalizing it here.</span></div>
+    </form>`,`<button class="button ghost" id="packageRenewCancel" type="button">Cancel</button><button class="button primary" id="packageRenewGenerate" type="button">Generate signed replacement</button>`,"medium");
+    const form=byId("packageRenewForm"),planSelect=form.elements.license_plan_id,statusSelect=form.elements.license_status,expiryInput=form.elements.expires_at,summary=byId("packageRenewPlanSummary");
+    const sync=()=>{const plan=plans.find(item=>String(item.id)===String(planSelect.value))||{};const perpetual=String(plan.billing_cycle||"")==="perpetual";const option=[...statusSelect.options].find(item=>item.value==="perpetual");if(option)option.disabled=plan.perpetual_allowed!==true;if(perpetual)statusSelect.value="perpetual";else if(statusSelect.value==="perpetual"&&plan.perpetual_allowed!==true)statusSelect.value="active";expiryInput.disabled=statusSelect.value==="perpetual";expiryInput.required=statusSelect.value!=="perpetual"&&["monthly","annual"].includes(String(plan.billing_cycle||""));if(expiryInput.disabled)expiryInput.value="";else if(!expiryInput.value)expiryInput.value=renewalDefaultExpiry(plan,currentLicense.expires_at||"");summary.textContent=`${renewalCapacityText(plan)} • ${number(plan.default_term_days||365)} term days • ${number(plan.grace_days||0)} grace days`;};
+    planSelect.onchange=()=>{expiryInput.value="";sync()};statusSelect.onchange=sync;sync();
+    byId("packageRenewCancel").onclick=closeModal;
+    byId("packageRenewGenerate").onclick=async()=>{if(!form.reportValidity())return;const values=formObject(form),plan=plans.find(item=>String(item.id)===String(values.license_plan_id));if(!plan)return;const action=byId("packageRenewGenerate");action.disabled=true;action.textContent="Generating replacement";try{const result=await invokePlatformPackageManager("renew_or_upgrade",{artifact_id:artifact.id,license_plan_id:plan.id,license_plan_revision:plan.revision,license_status:values.license_status,issued_on:values.issued_on,expires_at:values.expires_at?new Date(values.expires_at).toISOString():"",license_reference:values.license_reference,reason:values.reason,idempotency_key:crypto.randomUUID()});if(!result.signed_url)throw new Error("The replacement was generated but no download authorization was returned.");const link=document.createElement("a");link.href=result.signed_url;link.rel="noopener";link.click();closeModal();state.platformPackageConsole=null;toast("Signed replacement generated","Back up the school, run the included r4 upgrade and SCHOOL_LICENSE_SETUP.sql, redeploy the replacement license-verifier and frontend, then verify the school before finalizing the old package.","success",12000);await renderGithubNavigator(state.viewToken,true)}catch(error){toast("Replacement not generated",friendlyError(error),"error",10000);await reportClientError(error,{source:"platform_package_renew_upgrade",artifact_id:artifact.id})}finally{if(action){action.disabled=false;action.textContent="Generate signed replacement"}}};
+  }
+  function finalizeReplacementProtectedPackage(artifactId,button) {
+    const artifact=(state.platformPackageConsole?.artifacts||[]).find(item=>String(item.id)===String(artifactId));if(!artifact)return;
+    modal("Finalize Renewed or Upgraded Licence","Finalize only after the school has installed the replacement and completed a successful central-authority check. This atomically revokes the previous package and preserves the replacement as the active authority record.",`<div class="destructive-confirmation"><div class="template-information success"><strong>Replacement verified by school</strong><span>${esc(artifact.school_name)} • checked ${esc(isoDateTime(artifact.authority_last_checked_at))}</span></div><label class="field"><span>Finalization reason</span><textarea id="packageFinalizeReason" minlength="5" required placeholder="Replacement installed and accepted by the school"></textarea></label><label class="field"><span>Type ACTIVATE to confirm</span><input id="packageFinalizeConfirmText" autocomplete="off" required></label></div>`,`<button class="button ghost" id="packageFinalizeCancel" type="button">Cancel</button><button class="button success" id="packageFinalizeConfirm" type="button">Activate replacement</button>`,"small");
+    byId("packageFinalizeCancel").onclick=closeModal;
+    byId("packageFinalizeConfirm").onclick=async()=>{const reason=byId("packageFinalizeReason").value.trim(),confirmation=byId("packageFinalizeConfirmText").value.trim();if(reason.length<5||confirmation!=="ACTIVATE"){toast("Replacement not finalized","Enter a clear reason and type ACTIVATE exactly.","error");return}const action=byId("packageFinalizeConfirm");action.disabled=true;action.textContent="Finalizing";try{await invokePlatformPackageManager("finalize_replacement",{artifact_id:artifact.id,reason,confirmation});closeModal();state.platformPackageConsole=null;toast("Replacement activated","The previous package is revoked and the renewed or upgraded package is now the active authority record.","success",9000);await renderGithubNavigator(state.viewToken,true)}catch(error){toast("Replacement not finalized",friendlyError(error),"error",9000)}finally{if(action){action.disabled=false;action.textContent="Activate replacement"}}};
   }
 
   async function downloadProtectedPackage(artifactId,button) {
