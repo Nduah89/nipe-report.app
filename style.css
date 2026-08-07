@@ -285,8 +285,11 @@ td{font-size:13px}
   .verify-result{grid-template-columns:1fr}
   .revision-compare{grid-template-columns:1fr}
 }
+@page{size:A4 portrait;margin:0}
 @media print{
-  body{background:#fff}
+  html,body{width:210mm;min-height:297mm}
+  body{background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .sidebar,.topbar,.offline-bar,.page-head,.toolbar,.button,.icon-button,.toast-stack{display:none!important}
   .app-shell{display:block}.content{padding:0;max-width:none}
   .panel{box-shadow:none;border-color:#bbb}

@@ -2459,43 +2459,63 @@
   }
   function localPromotionEvaluation(editor=state.reportEditor) {
     const student=editor?.student||{},subjects=editor?.subjects||[],previous=editor?.promotion||{};
-    const cutoff=Number(state.boot?.school?.promotion_cutoff_score||50);
+    const cutoff=Number(previous.cutoff??state.boot?.school?.promotion_cutoff_score??50);
     const term3=isTermThreeRecord(student);
     const complete=subjects.length>0;
     const average=complete?subjects.reduce((sum,row)=>sum+Number(row.total_score||0),0)/subjects.length:0;
-    const nextClass=configuredNextClass(student.class_id);
+    // Never treat a role-filtered bootstrap class list as proof that no next class exists.
+    // Preserve authoritative server context when it has already resolved the target.
+    const localNext=configuredNextClass(student.class_id);
+    const nextClass=previous.next_class_id
+      ?{id:previous.next_class_id,name:previous.next_class_name||localNext?.name||""}
+      :localNext;
     const passed=term3&&complete&&average>=cutoff;
     const targetYear=previous.target_academic_year_id?{id:previous.target_academic_year_id,name:previous.target_academic_year_name||""}:configuredNextAcademicYear(student.academic_year_id);
     const reportStatus=String(editor?.report?.status||previous.report_status||"draft");
     const governanceApproved=["approved","published"].includes(reportStatus);
-    const promotionApplied=Boolean(passed&&governanceApproved&&previous.promotion_applied&&previous.next_class_id===nextClass?.id);
+    const authoritativeNextConfigured=typeof previous.next_class_configured==="boolean"?previous.next_class_configured:null;
+    const nextClassConfigured=authoritativeNextConfigured??(nextClass?true:null);
+    const promotionApplied=Boolean(passed&&governanceApproved&&previous.promotion_applied&&previous.next_class_id&&previous.next_class_id===nextClass?.id);
     return {term3,complete,average,cutoff,passed,eligible:passed&&Boolean(nextClass),report_status:reportStatus,
       governance_approved:governanceApproved,approval_required:passed&&!governanceApproved,
-      next_class_id:nextClass?.id||null,next_class_name:nextClass?.name||"",
+      next_class_id:nextClass?.id||null,next_class_name:nextClass?.name||"",next_class_configured:nextClassConfigured,
       target_academic_year_id:targetYear?.id||null,target_academic_year_name:targetYear?.name||"",promotion_applied:promotionApplied,
-      can_create_enrollment:passed&&governanceApproved&&Boolean(nextClass&&targetYear)};
+      can_create_enrollment:passed&&governanceApproved&&Boolean(nextClass&&targetYear),
+      canonical:false,finalized:false,canonical_source:previous.canonical_source||"local_draft_preview",resolution_status:nextClassConfigured===null?"pending":"resolved"};
   }
   async function enrichReportPromotion(editor) {
     if(!editor)return editor;
     if(editor.report?.id){
-      try{editor.promotion=await rpc("report_promotion_evaluation",{target_report_id:editor.report.id})}
-      catch(_){editor.promotion=localPromotionEvaluation(editor)}
+      try{
+        editor.promotion=await rpc("report_promotion_canonical",{target_report_id:editor.report.id});
+        editor.promotion_error="";
+      }catch(error){
+        await reportClientError(error,{source:"canonical_report_promotion",report_id:editor.report.id,workflow_state:editor.report?.status||""});
+        const fallback=localPromotionEvaluation(editor);
+        editor.promotion={...fallback,resolution_error:true,resolution_status:"error",canonical:false,finalized:["approved","published"].includes(String(editor.report?.status||""))};
+        editor.promotion_error=friendlyError(error);
+      }
     }else editor.promotion=localPromotionEvaluation(editor);
     return editor;
   }
   function promotionDisplay(evaluation=localPromotionEvaluation()) {
-    if(!evaluation.term3)return {title:"Not applicable",detail:"This record is not recognised as Term 3. Automatic promotion uses Term 3 results only.",state:"neutral"};
+    if(evaluation?.resolution_error)return {title:"Promotion status unavailable",detail:"The authoritative promotion decision could not be loaded. Refresh the report or contact the System Administrator. No academic decision has been inferred from this error.",state:"warning"};
+    if(!evaluation?.term3)return {title:"Not applicable",detail:"This record is not recognised as Term 3. Automatic promotion uses Term 3 results only.",state:"neutral"};
     if(!evaluation.complete)return {title:"Awaiting complete results",detail:`All assigned subjects must be completed before the ${number(evaluation.cutoff||50,0)}% promotion rule is applied.`,state:"warning"};
     if(evaluation.passed&&evaluation.next_class_name&&evaluation.promotion_applied)return {title:`Promoted to ${evaluation.next_class_name}`,detail:`The approved ${evaluation.target_academic_year_name||"next academic year"} enrolment is now the student’s active class placement. The earlier enrolment remains only in protected history.`,state:"pass"};
     if(evaluation.passed&&evaluation.next_class_name&&evaluation.approval_required)return {title:`Eligible for ${evaluation.next_class_name}`,detail:`Term 3 average ${number(evaluation.average,1)}% meets the ${number(evaluation.cutoff,0)}% cutoff. The next-year enrolment will be created only after Principal approval or publication.`,state:"warning"};
     if(evaluation.passed&&evaluation.next_class_name)return {title:`Eligible for ${evaluation.next_class_name}`,detail:`Term 3 average ${number(evaluation.average,1)}% meets the cutoff. Run Term 3 Promotion Processing after approval to create the ${evaluation.target_academic_year_name||"next-year"} enrolment.`,state:"pass"};
-    if(evaluation.passed&&!evaluation.next_class_name)return {title:"Passed, no next class configured",detail:`Term 3 average ${number(evaluation.average,1)}% meets the ${number(evaluation.cutoff,0)}% cutoff.`,state:"pass"};
+    if(evaluation.passed&&evaluation.next_class_configured===false)return {title:"Passed, no next class configured",detail:`Term 3 average ${number(evaluation.average,1)}% meets the ${number(evaluation.cutoff,0)}% cutoff, and the authoritative class progression configuration has no following class.`,state:"pass"};
+    if(evaluation.passed)return {title:"Promotion target pending",detail:`Term 3 average ${number(evaluation.average,1)}% meets the ${number(evaluation.cutoff,0)}% cutoff, but the authoritative next-class target has not been resolved yet.`,state:"warning"};
     return {title:"Not promoted",detail:`Term 3 average ${number(evaluation.average,1)}% is below the ${number(evaluation.cutoff,0)}% cutoff.`,state:"fail"};
   }
   function updatePromotionPreview() {
     if(!state.reportEditor)return;
-    const evaluation=localPromotionEvaluation(state.reportEditor),display=promotionDisplay(evaluation);
-    state.reportEditor.promotion=evaluation;
+    const reportStatus=String(state.reportEditor.report?.status||"");
+    const finalized=["approved","published"].includes(reportStatus);
+    const evaluation=finalized?(state.reportEditor.promotion||{resolution_error:true}):localPromotionEvaluation(state.reportEditor);
+    const display=promotionDisplay(evaluation);
+    if(!finalized)state.reportEditor.promotion=evaluation;
     const title=byId("automaticPromotionValue"),detail=byId("automaticPromotionDetail"),box=byId("automaticPromotionField");
     if(title)title.textContent=display.title;if(detail)detail.textContent=display.detail;
     if(box)box.dataset.promotionState=display.state;
@@ -2797,13 +2817,15 @@
   }
   function renderRevisionDiff(a,b) {
     const root=byId("revisionDiff");if(!root||!a||!b)return;
-    const fields=["status","days_school_opened","days_present","attitude","conduct","interest","teacher_comment","head_comment","promoted_to_class_id"];
+    const fields=["status","days_school_opened","days_present","attitude","conduct","interest","teacher_comment","head_comment"];
     const ar=a.snapshot?.report||{},br=b.snapshot?.report||{};
     const scoreMap=snapshot=>Object.fromEntries((snapshot?.results||[]).map(x=>[x.subject_name,x.total_score]));
     const as=scoreMap(a.snapshot),bs=scoreMap(b.snapshot),subjects=[...new Set([...Object.keys(as),...Object.keys(bs)])];
+    const ap=a.snapshot?.promotion?promotionDisplay(a.snapshot.promotion).title:"Not recorded in this historical revision";
+    const bp=b.snapshot?.promotion?promotionDisplay(b.snapshot.promotion).title:"Not recorded in this historical revision";
     root.innerHTML=`<div class="revision-compare">
-      <div class="diff-card"><h4>Version ${a.version}</h4>${fields.map(key=>`<div class="diff-row ${String(ar[key]??"")!==String(br[key]??"")?"changed":""}"><span>${esc(key.replaceAll("_"," "))}</span><b>${esc(ar[key]??"—")}</b></div>`).join("")}</div>
-      <div class="diff-card"><h4>Version ${b.version}</h4>${fields.map(key=>`<div class="diff-row ${String(ar[key]??"")!==String(br[key]??"")?"changed":""}"><span>${esc(key.replaceAll("_"," "))}</span><b>${esc(br[key]??"—")}</b></div>`).join("")}</div>
+      <div class="diff-card"><h4>Version ${a.version}</h4>${fields.map(key=>`<div class="diff-row ${String(ar[key]??"")!==String(br[key]??"")?"changed":""}"><span>${esc(key.replaceAll("_"," "))}</span><b>${esc(ar[key]??"—")}</b></div>`).join("")}<div class="diff-row ${ap!==bp?"changed":""}"><span>automatic promotion</span><b>${esc(ap)}</b></div></div>
+      <div class="diff-card"><h4>Version ${b.version}</h4>${fields.map(key=>`<div class="diff-row ${String(ar[key]??"")!==String(br[key]??"")?"changed":""}"><span>${esc(key.replaceAll("_"," "))}</span><b>${esc(br[key]??"—")}</b></div>`).join("")}<div class="diff-row ${ap!==bp?"changed":""}"><span>automatic promotion</span><b>${esc(bp)}</b></div></div>
     </div>
     <div class="section-title" style="margin-top:18px"><h4>Score changes</h4></div>
     <div class="table-wrap"><table><thead><tr><th>Subject</th><th>Version ${a.version}</th><th>Version ${b.version}</th><th>Change</th></tr></thead><tbody>
@@ -3379,8 +3401,17 @@
     return {mimeType,extension};
   }
 
+  const REPORT_LOGICAL_WIDTH=1240,REPORT_LOGICAL_HEIGHT=1754;
+  const REPORT_PRINT_WIDTH=2480,REPORT_PRINT_HEIGHT=3508,REPORT_PRINT_SCALE=2;
+  function createReportPrintCanvas() {
+    const canvas=document.createElement("canvas");canvas.width=REPORT_PRINT_WIDTH;canvas.height=REPORT_PRINT_HEIGHT;
+    const ctx=canvas.getContext("2d",{alpha:false});
+    if(!ctx)throw new Error("The browser could not create the print-quality report canvas.");
+    ctx.scale(REPORT_PRINT_SCALE,REPORT_PRINT_SCALE);
+    return {canvas,ctx};
+  }
   function normaliseTemplateCanvas(source) {
-    const canvas=document.createElement("canvas");canvas.width=1240;canvas.height=1754;
+    const canvas=document.createElement("canvas");canvas.width=REPORT_PRINT_WIDTH;canvas.height=REPORT_PRINT_HEIGHT;
     const ctx=canvas.getContext("2d");ctx.fillStyle="#ffffff";ctx.fillRect(0,0,canvas.width,canvas.height);
     const ratio=Math.min(canvas.width/source.width,canvas.height/source.height);
     const width=source.width*ratio,height=source.height*ratio;
@@ -3399,7 +3430,7 @@
     }
     if(pdf.numPages<1)throw new Error("The PDF template has no pages.");
     const page=await pdf.getPage(1),base=page.getViewport({scale:1});
-    const scale=Math.min(1240/base.width,1754/base.height)*2;
+    const scale=Math.min(REPORT_PRINT_WIDTH/base.width,REPORT_PRINT_HEIGHT/base.height);
     const viewport=page.getViewport({scale});
     const source=document.createElement("canvas");source.width=Math.ceil(viewport.width);source.height=Math.ceil(viewport.height);
     await page.render({canvasContext:source.getContext("2d"),viewport}).promise;
@@ -3429,7 +3460,7 @@
       await waitForTemplateImages(host);
       const page=host.querySelector("section.nis-docx-template")||host.querySelector(".nis-docx-template-wrapper > section")||host.firstElementChild;
       if(!page)throw new Error("The DOCX template could not be rendered.");
-      const source=await window.html2canvas(page,{backgroundColor:"#ffffff",scale:2,useCORS:true,allowTaint:false,logging:false,windowWidth:Math.max(794,page.scrollWidth),windowHeight:Math.max(1123,page.scrollHeight)});
+      const source=await window.html2canvas(page,{backgroundColor:"#ffffff",scale:3.15,useCORS:true,allowTaint:false,logging:false,windowWidth:Math.max(794,page.scrollWidth),windowHeight:Math.max(1123,page.scrollHeight)});
       return normaliseTemplateCanvas(source);
     }finally{host.remove()}
   }
@@ -3561,16 +3592,16 @@
 
   async function builtInReportTemplateCanvas() {
     if(!builtInReportTemplatePromise){
-      builtInReportTemplatePromise=loadImage(CONFIG.defaultReportTemplatePath)
-        .then(image=>normaliseTemplateCanvas(image))
-        .catch(async imageError=>{
-          const pdfPath=String(CONFIG.defaultReportTemplatePath||"").replace(/\.png(?:\?.*)?$/i,".pdf");
-          if(!pdfPath||pdfPath===CONFIG.defaultReportTemplatePath)throw imageError;
-          const response=await fetch(pdfPath,{cache:"no-store"});
-          if(!response.ok)throw imageError;
-          return renderPdfTemplateBlob(await response.blob());
-        })
-        .catch(error=>{builtInReportTemplatePromise=null;throw error});
+      builtInReportTemplatePromise=(async()=>{
+        const pdfPath=String(CONFIG.defaultReportTemplatePath||"").replace(/\.png(?:\?.*)?$/i,".pdf");
+        if(pdfPath&&pdfPath!==CONFIG.defaultReportTemplatePath){
+          try{
+            const response=await fetch(pdfPath,{cache:"no-store"});
+            if(response.ok)return renderPdfTemplateBlob(await response.blob());
+          }catch(_){}
+        }
+        return normaliseTemplateCanvas(await loadImage(CONFIG.defaultReportTemplatePath));
+      })().catch(error=>{builtInReportTemplatePromise=null;throw error});
     }
     return builtInReportTemplatePromise;
   }
@@ -3881,7 +3912,7 @@
     ctx.textBaseline="alphabetic";ctx.restore();
   }
 
-  async function drawAssignedTemplateOverlay(ctx,canvas,{student={},report={},subjects=[],publication=null,manual=false,templateMeta={},assets={}}={}) {
+  async function drawAssignedTemplateOverlay(ctx,canvas,{student={},report={},subjects=[],publication=null,manual=false,templateMeta={},assets={},promotion=null}={}) {
     const school=state.boot.school||{},ink="#17233b",summaryPale="#eef4fb";
     const {logo,signer={},signatureImage,studentPhotoImage}=assets;
     const showStudentPhoto=!manual&&Boolean(studentPhotoImage);
@@ -3972,8 +4003,8 @@
     setReportFont(ctx,15,"normal");ctx.fillStyle=REPORT_COMMENT_COLOUR;
     if(!manual){const lines=reportTextLines(ctx,report.head_comment||"",650,2);[997,1021].forEach((y,index)=>{if(lines[index])ctx.fillText(lines[index],43,y)})}
 
-    ctx.fillStyle=ink;const promotedName=(state.boot.classes||[]).find(item=>item.id===report.promoted_to_class_id)?.name||"";
-    setReportFont(ctx,18,"bold");ctx.fillText(`Promoted To ${manual?"Basic.........":promotedName||"Basic........."}`,38,1056);
+    ctx.fillStyle=ink;const promotionTitle=manual?"Promoted To Basic.........":promotionDisplay(promotion||{resolution_error:true}).title;
+    const promotionFont=fitReportText(ctx,promotionTitle,790,18,12,"bold");setReportFont(ctx,promotionFont,"bold");ctx.fillText(promotionTitle,38,1056);
     setReportFont(ctx,16,"bold");drawReportNextTermReopening(ctx,reportNextTermReopeningText(report,student,manual),38,1125);
 
     const base=school.verification_base_url||school.website||`${location.origin}${location.pathname}`;
@@ -3999,20 +4030,18 @@
   }
 
   async function drawPreferredTerminalReport({
-    student={},report={},subjects=[],publication=null,manual=false,templateMeta={},assets={}
+    student={},report={},subjects=[],publication=null,manual=false,templateMeta={},assets={},promotion=null
   }) {
     await ensureReportBodyFontReady();
-    const canvas=document.createElement("canvas");
-    canvas.width=1240;canvas.height=1754;
-    const ctx=canvas.getContext("2d"),school=state.boot.school||{};
+    const {canvas,ctx}=createReportPrintCanvas(),school=state.boot.school||{};
     const navy="#123a79",accent="#f79646",headerPale="#dce8f6",summaryPale="#eef4fb",ink="#17233b";
     const {logo,signer={},signatureImage,studentPhotoImage}=assets;
     const showStudentPhoto=!manual&&Boolean(studentPhotoImage);
 
-    ctx.fillStyle="#ffffff";ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle="#ffffff";ctx.fillRect(0,0,REPORT_LOGICAL_WIDTH,REPORT_LOGICAL_HEIGHT);
     if(assets.templateBackground){
-      drawImageContain(ctx,assets.templateBackground,0,0,canvas.width,canvas.height);
-      return drawAssignedTemplateOverlay(ctx,canvas,{student,report,subjects,publication,manual,templateMeta,assets});
+      drawImageContain(ctx,assets.templateBackground,0,0,REPORT_LOGICAL_WIDTH,REPORT_LOGICAL_HEIGHT);
+      return drawAssignedTemplateOverlay(ctx,canvas,{student,report,subjects,publication,manual,templateMeta,assets,promotion});
     }
 
     // Header, proportioned to the approved Nipe terminal-report template.
@@ -4118,8 +4147,8 @@
       [1353,1382].forEach((y,index)=>{if(lines[index])ctx.fillText(lines[index],47,shift(y))});
     }
     ctx.fillStyle=ink;
-    const promotedName=(state.boot.classes||[]).find(item=>item.id===report.promoted_to_class_id)?.name||"";
-    setReportFont(ctx,20,"bold");ctx.fillText(`Promoted To ${manual?"Basic.........":promotedName||"Basic........."}`,43,shift(1422));
+    const promotionTitle=manual?"Promoted To Basic.........":promotionDisplay(promotion||{resolution_error:true}).title;
+    const promotionFont=fitReportText(ctx,promotionTitle,800,20,13,"bold");setReportFont(ctx,promotionFont,"bold");ctx.fillText(promotionTitle,43,shift(1422));
     setReportFont(ctx,17,"bold");
     drawReportNextTermReopening(ctx,reportNextTermReopeningText(report,student,manual),43,shift(1460));
 
@@ -4157,23 +4186,38 @@
     return canvas;
   }
 
+  async function printQualityCanvasPdf(canvas) {
+    const width=canvas?.width||0,height=canvas?.height||0;
+    if(width<REPORT_PRINT_WIDTH||height<REPORT_PRINT_HEIGHT)throw new Error(`Official report export was blocked because its raster resolution was only ${width} × ${height}. Minimum print quality is ${REPORT_PRINT_WIDTH} × ${REPORT_PRINT_HEIGHT}.`);
+    const jpeg=await new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(new Error("The print-quality report image could not be encoded.")),"image/jpeg",.995));
+    // Release the large 300-PPI backing store before constructing the PDF to reduce
+    // peak memory pressure in Android WebView and sequential batch generation.
+    canvas.width=1;canvas.height=1;
+    return imagePdf(jpeg,595.28,841.89,width,height);
+  }
+
   async function createReportPdf(editor,publication) {
-    const assets=await resolveReportImageAssets({
-      reportId:editor.report?.id||null,manual:false,studentPhotoPath:editor.student?.photo_url||"",className:editor.student?.class_name||""
-    });
     if(!editor.report?.id)throw new Error("The report must be saved before an official PDF can be generated.");
-    let gradingGuide;
+    const assets=await resolveReportImageAssets({
+      reportId:editor.report.id,manual:false,studentPhotoPath:editor.student?.photo_url||"",className:editor.student?.class_name||""
+    });
+    let gradingGuide,promotion;
     try{
       gradingGuide=normaliseGradingGuide(await rpc("get_report_grading_guide",{target_report_id:editor.report.id,target_enrollment_id:null,target_term_id:null}));
     }catch(error){
       throw new Error("The official PDF cannot be generated until the report has a valid grading guide. Verify Academic Configuration and try again.",{cause:error});
     }
+    try{
+      promotion=await rpc("report_promotion_canonical",{target_report_id:editor.report.id});
+    }catch(error){
+      await reportClientError(error,{source:"official_pdf_canonical_promotion",report_id:editor.report.id});
+      throw new Error("The official PDF cannot be generated until the authoritative promotion decision is available. Refresh the report and try again.",{cause:error});
+    }
     if(!gradingGuide.rows.length)throw new Error("The official PDF cannot be generated because the applicable grading guide contains no active ranges.");
     const canvas=await drawPreferredTerminalReport({
-      student:editor.student||{},report:{...(editor.report||{}),grading_scale_guide:gradingGuide},subjects:editor.subjects||[],publication,manual:false,assets
+      student:editor.student||{},report:{...(editor.report||{}),grading_scale_guide:gradingGuide},subjects:editor.subjects||[],publication,manual:false,assets,promotion
     });
-    const jpeg=await new Promise(resolve=>canvas.toBlob(resolve,"image/jpeg",.97));
-    return imagePdf(jpeg,595.28,841.89);
+    return printQualityCanvasPdf(canvas);
   }
 
   async function createManualReportTemplatePdf({academicYearId=null,classId=null,academicYearName="",termName="",className="",subjects=[]}={}) {
@@ -4186,10 +4230,9 @@
     }));
     const canvas=await drawPreferredTerminalReport({
       student:{},report:{days_present:null,days_school_opened:null,attitude:"",conduct:"",interest:"",teacher_comment:"",head_comment:""},
-      subjects:templateSubjects,publication:null,manual:true,templateMeta:{academicYearName,termName,className,gradingGuide},assets
+      subjects:templateSubjects,publication:null,manual:true,templateMeta:{academicYearName,termName,className,gradingGuide},assets,promotion:null
     });
-    const jpeg=await new Promise(resolve=>canvas.toBlob(resolve,"image/jpeg",.97));
-    return imagePdf(jpeg,595.28,841.89);
+    return printQualityCanvasPdf(canvas);
   }
 
   async function imagePdf(jpegBlob,pageWidth,pageHeight,imageWidth=1240,imageHeight=1754) {
@@ -6501,7 +6544,7 @@
         root.innerHTML=`<section class="verify-card">
           <div class="verify-head"><img src="${schoolDisplayLogo()}" alt=""><div><h1>${esc(schoolDisplayName())}</h1><p>Report Card Verification</p></div></div>
           <div class="verify-state ${data.valid?"valid":"invalid"}">${data.valid?"Authentic published report":data.revoked?"Publication withdrawn":"Report not verified"}</div>
-          ${data.report_number?`<div class="verify-result">${verifyField("Report number",data.report_number)}${verifyField("Student",data.student_name)}${verifyField("Admission number",data.admission_no)}${verifyField("Class",data.class_name)}${verifyField("Academic year",data.academic_year)}${verifyField("Term",data.term_name)}${verifyField("Average",`${number(data.average,1)}%`)}${verifyField("Published",isoDateTime(data.published_at))}</div>`:""}
+          ${data.report_number?`<div class="verify-result">${verifyField("Report number",data.report_number)}${verifyField("Student",data.student_name)}${verifyField("Admission number",data.admission_no)}${verifyField("Class",data.class_name)}${verifyField("Academic year",data.academic_year)}${verifyField("Term",data.term_name)}${verifyField("Average",`${number(data.average,1)}%`)}${data.promotion&&Object.keys(data.promotion).length?verifyField("Automatic promotion",promotionDisplay(data.promotion).title):""}${verifyField("Published",isoDateTime(data.published_at))}</div>`:""}
         </section>`;
       }
     }catch(error){root.innerHTML=`<section class="verify-card"><div class="verify-state invalid">Verification unavailable</div><p class="help-text">${esc(friendlyError(error))}</p></section>`}
