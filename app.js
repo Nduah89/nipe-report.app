@@ -5821,21 +5821,178 @@
   async function deleteSchoolProspectus(snapshot){const p=prospectusRecord(snapshot);if(!await confirmAction("Delete draft prospectus","Only a prospectus that has never been published can be deleted. This removes its current sections and items.","Delete draft",true))return;try{await rpc("delete_school_prospectus",{target_prospectus_id:p.id});state.prospectusConsole=null;toast("Draft prospectus deleted");await renderSchoolProspectus(state.viewToken,true)}catch(error){toast("Prospectus not deleted",friendlyError(error),"error",8000)}}
   function copySchoolProspectus(snapshot){const p=prospectusRecord(snapshot),years=(state.boot?.academic_years||[]).filter(y=>y.id!==snapshot.academic_year?.id);if(!years.length){toast("No target academic year","Create the next academic year before copying this prospectus.","warning");return}modal("Copy Prospectus to Academic Year","Create a new editable draft from an existing academic-year prospectus.",`<form id="prospectusCopyForm" class="form-grid"><div class="template-information full"><strong>${esc(prospectusRangeLabel(p.class_range))}</strong><span>Sections and items are copied into a new Draft. Publication history is not copied.</span></div><label class="field full"><span>Target academic year</span><select name="academic_year_id">${years.map(y=>`<option value="${attr(y.id)}">${esc(y.name)}</option>`).join("")}</select></label></form>`,`<button class="button ghost" id="prospectusCopyCancel">Cancel</button><button class="button primary" id="prospectusCopySave">Copy prospectus</button>`);byId("prospectusCopyCancel").onclick=closeModal;byId("prospectusCopySave").onclick=async()=>{const target=formObject(byId("prospectusCopyForm")).academic_year_id,b=byId("prospectusCopySave");b.disabled=true;try{await rpc("copy_school_prospectus",{target_source_id:p.id,target_academic_year_id:target});closeModal();state.prospectusYear=target;state.prospectusConsole=null;toast("Prospectus copied","The copied prospectus is a new draft ready for the target academic year.");await renderSchoolProspectus(state.viewToken,true)}catch(error){toast("Prospectus not copied",friendlyError(error),"error",9000)}finally{b.disabled=false}}}
 
-  function prospectusPreviewHtml(snapshot){const p=prospectusRecord(snapshot),currency=prospectusCurrency(snapshot),school=snapshot.school||{},sections=snapshot.sections||[],grand=sections.reduce((sum,s)=>sum+prospectusSubtotal(s),0);return `<article class="prospectus-preview-document"><header><div class="prospectus-preview-brand"><img src="${attr(schoolDisplayLogo())}" alt=""><div><h2>${esc(school.school_name||schoolDisplayName())}</h2>${school.motto?`<p>${esc(school.motto)}</p>`:""}</div></div><div class="prospectus-preview-title"><span>${esc(snapshot.academic_year?.name||"")}</span><h1>${esc(p.title||"School Prospectus")}</h1><strong>${esc(prospectusRangeLabel(p.class_range))}</strong></div></header>${p.general_notes?`<div class="prospectus-notice">${esc(p.general_notes)}</div>`:""}${sections.map(section=>`<section><h3>${esc(section.title)}</h3>${section.instructions?`<p class="section-note">${esc(section.instructions)}</p>`:""}<div class="table-wrap"><table><thead><tr><th>Description</th><th>Amount / Quantity</th><th>Basis</th><th>Notes</th></tr></thead><tbody>${(section.items||[]).map(item=>`<tr><td><strong>${esc(item.item_name)}</strong>${item.description?`<br><small>${esc(item.description)}</small>`:""}</td><td>${esc(prospectusAmountLabel(item,currency))}</td><td>${esc(prospectusBasisLabel(item.charge_basis))}${item.calculation_units?` × ${number(item.calculation_units)}`:""}</td><td>${esc(item.notes||"")}</td></tr>`).join("")||`<tr><td colspan="4">No items</td></tr>`}</tbody></table></div>${prospectusSubtotal(section)>0?`<div class="prospectus-preview-subtotal"><span>Calculated subtotal</span><strong>${esc(prospectusMoney(prospectusSubtotal(section),currency))}</strong></div>`:""}</section>`).join("")}<footer><div><strong>Calculated payable total: ${esc(prospectusMoney(grand,currency))}</strong>${prospectusHasUncalculatedRates(snapshot)?`<small>Recurring rates without configured calculation units are shown separately and are not included in this total.</small>`:""}</div><div><span>Status: ${esc(String(p.status||"draft").toUpperCase())}${p.revision_no?` • Revision R${number(p.revision_no)}`:""}</span><span>${p.effective_date?`Effective ${isoDate(p.effective_date)}`:""}</span></div></footer></article>`}
+  function prospectusPreviewHtml(snapshot){
+    const p=prospectusRecord(snapshot),currency=prospectusCurrency(snapshot),school=snapshot.school||{},sections=snapshot.sections||[],grand=sections.reduce((sum,section)=>sum+prospectusSubtotal(section),0),status=String(p.status||"draft").toUpperCase(),revision=p.revision_no?`Revision R${number(p.revision_no)}`:"Not yet published";
+    return `<article class="prospectus-preview-document prospectus-preview-r16"><header><div class="prospectus-preview-brand"><img src="${attr(schoolDisplayLogo(school))}" alt=""><div><h2>${esc(school.school_name||schoolDisplayName(school))}</h2>${school.motto?`<p>${esc(school.motto)}</p>`:""}${school.address?`<p>${esc(school.address)}</p>`:""}${school.phone?`<p>${esc(school.phone)}</p>`:""}<h1>${esc(p.title||"School Prospectus")}</h1></div></div></header><div class="prospectus-preview-meta"><span><b>Academic Year</b>${esc(snapshot.academic_year?.name||"")}</span><span><b>Class Range</b>${esc(prospectusRangeLabel(p.class_range))}</span><span><b>Status</b>${esc(`${status} | ${revision}`)}</span><span><b>Effective</b>${esc(p.effective_date?isoDate(p.effective_date):"Not set")}</span></div>${p.general_notes?`<div class="prospectus-notice"><strong>General Note</strong><span>${esc(p.general_notes)}</span></div>`:""}${sections.map(section=>`<section><h3>${esc(section.title)}</h3>${section.instructions?`<p class="section-note">${esc(section.instructions)}</p>`:""}<div class="table-wrap"><table><thead><tr><th>Description</th><th>Amount / Quantity</th><th>Basis</th></tr></thead><tbody>${(section.items||[]).map(item=>{const detail=prospectusPdfItemDetail(item);return `<tr><td><strong>${esc(item.item_name)}</strong>${detail?`<br><small>${esc(detail)}</small>`:""}</td><td>${esc(prospectusAmountLabel(item,currency))}</td><td>${esc(prospectusPdfBasisText(item))}</td></tr>`}).join("")||`<tr><td colspan="3">No items configured</td></tr>`}</tbody></table></div>${prospectusSubtotal(section)>0?`<div class="prospectus-preview-subtotal"><span>Calculated subtotal</span><strong>${esc(prospectusMoney(prospectusSubtotal(section),currency))}</strong></div>`:""}</section>`).join("")}<footer><div><strong>Calculated payable total: ${esc(prospectusMoney(grand,currency))}</strong>${prospectusHasUncalculatedRates(snapshot)?`<small>Recurring rates without configured calculation units are shown separately and are not included in this total.</small>`:""}</div><div><span>Single-page A4 output</span><span>Page 1 of 1 per class range</span></div></footer></article>`
+  }
   function previewSchoolProspectus(snapshot){if(!snapshot)return;modal(`${prospectusRangeLabel(prospectusRecord(snapshot).class_range)} Prospectus Preview`,`Review the document exactly as organized before downloading the PDF.`,prospectusPreviewHtml(snapshot),`<button class="button ghost" id="prospectusPreviewClose">Close</button><button class="button primary" id="prospectusPreviewPdf">Download PDF</button>`,`wide`);byId("prospectusPreviewClose").onclick=closeModal;byId("prospectusPreviewPdf").onclick=()=>downloadSchoolProspectusPdf(snapshot)}
 
-  async function prospectusCanvasPages(snapshot){
-    const W=2480,H=3508,M=150,RIGHT=W-M,BOTTOM=H-145,school=snapshot.school||{},p=prospectusRecord(snapshot),currency=prospectusCurrency(snapshot),primary=idCardSafeColour(school.primary_colour,"#0a2f73"),accent=idCardSafeColour(school.accent_colour,"#f0b51d");let pageNo=0,canvas,ctx,y,pages=[];let logo=null;try{logo=await loadImage(schoolDisplayLogo())}catch(_){}
-    const newPage=()=>{if(canvas)pages.push(canvas);pageNo+=1;canvas=document.createElement("canvas");canvas.width=W;canvas.height=H;ctx=canvas.getContext("2d");ctx.fillStyle="#fff";ctx.fillRect(0,0,W,H);ctx.fillStyle=primary;ctx.fillRect(0,0,W,245);if(logo){ctx.fillStyle="#fff";ctx.fillRect(M,38,160,160);drawImageContain(ctx,logo,M+8,46,144,144)}ctx.fillStyle="#fff";ctx.font="800 58px Arial";ctx.fillText(String(school.school_name||schoolDisplayName()).toUpperCase(),logo?M+200:M,92,RIGHT-(logo?M+200:M));ctx.font="600 28px Arial";ctx.fillText(String(school.motto||"OFFICIAL SCHOOL PROSPECTUS"),logo?M+200:M,145,RIGHT-(logo?M+200:M));ctx.fillStyle=accent;ctx.fillRect(0,245,W,14);ctx.fillStyle="#12233f";ctx.font="800 44px Arial";ctx.fillText(String(p.title||"School Prospectus"),M,340,1600);ctx.font="700 31px Arial";ctx.fillStyle="#40516c";ctx.fillText(`${snapshot.academic_year?.name||""} • ${prospectusRangeLabel(p.class_range)}${p.revision_no?` • Revision R${p.revision_no}`:" • Draft"}`,M,390,1900);y=455;if(p.general_notes&&pageNo===1){ctx.fillStyle="#edf3fb";ctx.fillRect(M,y,RIGHT-M,120);ctx.fillStyle="#243957";ctx.font="600 24px Arial";y=drawWrapped(ctx,p.general_notes,M+28,y+42,RIGHT-M-56,32,3)+18}return canvas};
-    const ensure=needed=>{if(y+needed>BOTTOM)newPage()};newPage();
-    for(const section of snapshot.sections||[]){ensure(150);ctx.fillStyle=primary;ctx.fillRect(M,y,RIGHT-M,70);ctx.fillStyle="#fff";ctx.font="800 30px Arial";ctx.fillText(String(section.title||prospectusSectionTypeLabel(section.section_type)).toUpperCase(),M+24,y+45,RIGHT-M-48);y+=90;if(section.instructions){ctx.fillStyle="#53647c";ctx.font="500 22px Arial";y=drawWrapped(ctx,section.instructions,M+8,y,RIGHT-M-16,29,4)+16}
-      const items=section.items||[];for(const item of items){ensure(118);const amount=prospectusAmountLabel(item,currency),basis=`${prospectusBasisLabel(item.charge_basis)}${item.calculation_units?` × ${number(item.calculation_units)}`:""}`;ctx.strokeStyle="#d5deeb";ctx.lineWidth=2;ctx.strokeRect(M,y,RIGHT-M,96);ctx.fillStyle="#12233f";ctx.font="700 23px Arial";drawWrapped(ctx,item.item_name,M+20,y+32,980,29,2);ctx.fillStyle="#203b65";ctx.font="700 22px Arial";ctx.fillText(amount,1280,y+34,420);ctx.fillStyle="#55657d";ctx.font="600 19px Arial";ctx.fillText(basis,1710,y+34,600);if(item.notes||item.description){ctx.fillStyle="#687991";ctx.font="500 17px Arial";drawWrapped(ctx,[item.description,item.notes].filter(Boolean).join(" • "),1280,y+68,RIGHT-1280-18,22,1)}y+=104}
-      const subtotal=prospectusSubtotal(section);if(subtotal>0){ensure(70);ctx.fillStyle="#eef4fb";ctx.fillRect(1180,y,RIGHT-1180,58);ctx.fillStyle="#12233f";ctx.font="800 22px Arial";ctx.fillText("CALCULATED SUBTOTAL",1200,y+37);ctx.textAlign="right";ctx.fillText(prospectusMoney(subtotal,currency),RIGHT-20,y+37);ctx.textAlign="left";y+=82}y+=20}
-    const grand=(snapshot.sections||[]).reduce((sum,s)=>sum+prospectusSubtotal(s),0);ensure(170);ctx.fillStyle="#0f274b";ctx.fillRect(M,y,RIGHT-M,100);ctx.fillStyle="#fff";ctx.font="800 27px Arial";ctx.fillText("CALCULATED PAYABLE TOTAL",M+25,y+62);ctx.textAlign="right";ctx.font="850 34px Arial";ctx.fillText(prospectusMoney(grand,currency),RIGHT-25,y+62);ctx.textAlign="left";y+=126;if(prospectusHasUncalculatedRates(snapshot)){ctx.fillStyle="#6a4d12";ctx.font="600 18px Arial";y=drawWrapped(ctx,"Important: Recurring rates such as per-day transport or feeding are excluded from the calculated total until the school specifies the number of billable units.",M,y,RIGHT-M,26,3)+10}
-    if(canvas)pages.push(canvas);for(const [index,page] of pages.entries()){const c=page.getContext("2d");c.fillStyle="#5b6b82";c.font="500 18px Arial";c.fillText(`Generated ${new Date().toLocaleString("en-GH")} • ${String(p.status||"draft").toUpperCase()}${p.effective_date?` • Effective ${isoDate(p.effective_date)}`:""}`,M,H-78,1700);c.textAlign="right";c.fillText(`Page ${index+1} of ${pages.length}`,RIGHT,H-78);c.textAlign="left";c.fillStyle=accent;c.fillRect(0,H-35,W,35)}return pages;
+  // r16 Prospectus single-page A4 print contract.
+  // Uses the same school-header information and visual hierarchy as the official report card,
+  // then compacts every prospectus section into one readable A4 page per class range.
+  function prospectusPdfWrapLines(ctx,text,maxWidth){
+    const value=String(text??"").replace(/\r/g,"");
+    if(!value)return [];
+    const lines=[];
+    const pushWrapped=paragraph=>{
+      const words=String(paragraph||"").trim().split(/\s+/).filter(Boolean);
+      if(!words.length){lines.push("");return}
+      let line="";
+      for(const rawWord of words){
+        let word=rawWord;
+        const candidate=line?`${line} ${word}`:word;
+        if(ctx.measureText(candidate).width<=maxWidth){line=candidate;continue}
+        if(line){lines.push(line);line=""}
+        if(ctx.measureText(word).width<=maxWidth){line=word;continue}
+        let chunk="";
+        for(const character of word){
+          const next=`${chunk}${character}`;
+          if(chunk&&ctx.measureText(next).width>maxWidth){lines.push(chunk);chunk=character}
+          else chunk=next;
+        }
+        line=chunk;
+      }
+      if(line)lines.push(line);
+    };
+    value.split("\n").forEach(pushWrapped);
+    return lines;
   }
-  async function createSchoolProspectusPdf(snapshots){if(!snapshots?.length)throw new Error("No school prospectus is available for PDF generation");const blobs=[];for(const snapshot of snapshots){const pages=await prospectusCanvasPages(snapshot);for(const page of pages){try{blobs.push(await idCardCanvasBlob(page,.985))}finally{releaseCanvas(page)}}await sleep(10)}return imagesPdf(blobs,595.28,841.89,2480,3508)}
-  async function downloadSchoolProspectusPdf(snapshot){if(!snapshot)return;setLoading(true);try{const p=prospectusRecord(snapshot);downloadBlob(`${safeArchiveSegment(snapshot.academic_year?.name||"year")}-${safeArchiveSegment(prospectusRangeLabel(p.class_range))}-school-prospectus${p.revision_no?`-R${p.revision_no}`:"-draft"}.pdf`,await createSchoolProspectusPdf([snapshot]));toast("Prospectus PDF downloaded","Professional A4 prospectus generated successfully.")}catch(error){toast("Prospectus PDF not created",friendlyError(error),"error",9000)}finally{setLoading(false)}}
+  function prospectusPdfDrawLines(ctx,lines,x,y,lineHeight,{align="left",width=0}={}){
+    const previous=ctx.textAlign;ctx.textAlign=align;
+    const anchor=align==="center"?x+width/2:align==="right"?x+width:x;
+    for(const line of lines){ctx.fillText(line,anchor,y);y+=lineHeight}
+    ctx.textAlign=previous;return y;
+  }
+  function prospectusPdfItemDetail(item){
+    return [item?.description,item?.notes].map(value=>String(value||"").trim()).filter(Boolean).join(" | ");
+  }
+  function prospectusPdfBasisText(item){
+    const basis=prospectusBasisLabel(item?.charge_basis);
+    const units=prospectusNumberOrNull(item?.calculation_units);
+    return units!==null&&units>0?`${basis} x ${number(units)}`:basis;
+  }
+  function prospectusPdfProfileHeight(ctx,snapshot,profile,width,draw=false,originX=0,originY=0){
+    const school=snapshot.school||{},p=prospectusRecord(snapshot),currency=prospectusCurrency(snapshot),primary=idCardSafeColour(school.primary_colour,"#123a79"),accent=idCardSafeColour(school.accent_colour,"#f0b51d");
+    const descWidth=width*.62,amountWidth=width*.18,basisWidth=width-descWidth-amountWidth;
+    const descX=originX,amountX=originX+descWidth,basisX=amountX+amountWidth;
+    let y=originY;
+    const line=(x1,y1,x2,y2,colour="#d4ddea",lineWidth=1)=>{if(!draw)return;ctx.strokeStyle=colour;ctx.lineWidth=lineWidth;ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke()};
+    const rect=(x1,y1,w,h,fill)=>{if(!draw)return;ctx.fillStyle=fill;ctx.fillRect(x1,y1,w,h)};
+    if(p.general_notes){
+      setReportFont(ctx,profile.detail,"normal");const noteLines=prospectusPdfWrapLines(ctx,p.general_notes,width-profile.pad*4),h=Math.max(profile.noteMin,noteLines.length*profile.detailLine+profile.pad*2+8);
+      if(draw){rect(originX,y,width,h,"#fff8df");ctx.strokeStyle="#ead27a";ctx.lineWidth=1;ctx.strokeRect(originX,y,width,h);ctx.fillStyle="#6a5212";setReportFont(ctx,profile.meta,"bold");ctx.fillText("GENERAL NOTE",originX+profile.pad*2,y+profile.pad+profile.meta);ctx.fillStyle="#5b4810";setReportFont(ctx,profile.detail,"normal");prospectusPdfDrawLines(ctx,noteLines,originX+profile.pad*2,y+profile.pad+profile.meta+profile.detailLine,profile.detailLine)}
+      y+=h+profile.gap;
+    }
+    const sections=snapshot.sections||[];
+    for(let sectionIndex=0;sectionIndex<sections.length;sectionIndex++){
+      const section=sections[sectionIndex];if(sectionIndex)y+=profile.gap;
+      setReportFont(ctx,profile.section,"bold");const title=String(section.title||prospectusSectionTypeLabel(section.section_type)).toUpperCase(),titleLines=prospectusPdfWrapLines(ctx,title,descWidth-profile.pad*4);
+      const headerH=Math.max(profile.sectionH,titleLines.length*profile.sectionLine+profile.pad*2);
+      if(draw){rect(originX,y,width,headerH,primary);ctx.fillStyle="#fff";setReportFont(ctx,profile.section,"bold");prospectusPdfDrawLines(ctx,titleLines,originX+profile.pad*2,y+profile.pad+profile.section,profile.sectionLine);setReportFont(ctx,profile.column,"bold");ctx.textAlign="center";ctx.fillText("AMOUNT / QUANTITY",amountX+amountWidth/2,y+headerH/2+profile.column*.35);ctx.fillText("BASIS",basisX+basisWidth/2,y+headerH/2+profile.column*.35);ctx.textAlign="left"}
+      y+=headerH;
+      if(section.instructions){
+        setReportFont(ctx,profile.detail,"normal");const instructionLines=prospectusPdfWrapLines(ctx,section.instructions,width-profile.pad*4),instructionH=instructionLines.length*profile.detailLine+profile.pad*2;
+        if(draw){rect(originX,y,width,instructionH,"#f4f7fb");ctx.fillStyle="#52647e";prospectusPdfDrawLines(ctx,instructionLines,originX+profile.pad*2,y+profile.pad+profile.detail,profile.detailLine);line(originX,y+instructionH,originX+width,y+instructionH)}
+        y+=instructionH;
+      }
+      const items=section.items||[];
+      if(!items.length){
+        const rowH=profile.minRow;
+        if(draw){ctx.fillStyle="#6a778c";setReportFont(ctx,profile.detail,"normal");ctx.fillText("No items configured",originX+profile.pad*2,y+rowH/2+profile.detail*.35);line(originX,y+rowH,originX+width,y+rowH);line(amountX,y,amountX,y+rowH);line(basisX,y,basisX,y+rowH)}
+        y+=rowH;
+      }
+      for(let itemIndex=0;itemIndex<items.length;itemIndex++){
+        const item=items[itemIndex],name=String(item.item_name||""),detail=prospectusPdfItemDetail(item),amount=prospectusAmountLabel(item,currency),basis=prospectusPdfBasisText(item);
+        setReportFont(ctx,profile.name,"bold");const nameLines=prospectusPdfWrapLines(ctx,name,descWidth-profile.pad*4);
+        setReportFont(ctx,profile.detail,"normal");const detailLines=detail?prospectusPdfWrapLines(ctx,detail,descWidth-profile.pad*4):[];
+        setReportFont(ctx,profile.amount,"bold");const amountLines=prospectusPdfWrapLines(ctx,amount,amountWidth-profile.pad*3);
+        setReportFont(ctx,profile.basis,"normal");const basisLines=prospectusPdfWrapLines(ctx,basis,basisWidth-profile.pad*3);
+        const descContent=nameLines.length*profile.nameLine+(detailLines.length?profile.detailGap+detailLines.length*profile.detailLine:0),amountContent=Math.max(1,amountLines.length)*profile.amountLine,basisContent=Math.max(1,basisLines.length)*profile.basisLine;
+        const rowH=Math.max(profile.minRow,Math.max(descContent,amountContent,basisContent)+profile.pad*2);
+        if(draw){
+          if(itemIndex%2===1)rect(originX,y,width,rowH,"#fbfdff");
+          ctx.fillStyle="#17233b";setReportFont(ctx,profile.name,"bold");let textY=y+profile.pad+profile.name;prospectusPdfDrawLines(ctx,nameLines,originX+profile.pad*2,textY,profile.nameLine);
+          if(detailLines.length){textY+=nameLines.length*profile.nameLine+profile.detailGap-profile.name;ctx.fillStyle="#66758a";setReportFont(ctx,profile.detail,"normal");prospectusPdfDrawLines(ctx,detailLines,originX+profile.pad*2,textY+profile.detail,profile.detailLine)}
+          ctx.fillStyle="#203b65";setReportFont(ctx,profile.amount,"bold");const amountTop=y+(rowH-amountLines.length*profile.amountLine)/2+profile.amount;prospectusPdfDrawLines(ctx,amountLines,amountX,y+(rowH-amountLines.length*profile.amountLine)/2+profile.amount,profile.amountLine,{align:"center",width:amountWidth});
+          ctx.fillStyle="#55657d";setReportFont(ctx,profile.basis,"normal");prospectusPdfDrawLines(ctx,basisLines,basisX,y+(rowH-basisLines.length*profile.basisLine)/2+profile.basis,profile.basisLine,{align:"center",width:basisWidth});
+          line(originX,y+rowH,originX+width,y+rowH);line(amountX,y,amountX,y+rowH);line(basisX,y,basisX,y+rowH);
+        }
+        y+=rowH;
+      }
+      const subtotal=prospectusSubtotal(section);
+      if(subtotal>0){
+        if(draw){rect(originX,y,width,profile.subtotalH,"#edf3fb");ctx.fillStyle="#12233f";setReportFont(ctx,profile.subtotal,"bold");ctx.fillText("CALCULATED SUBTOTAL",amountX+profile.pad,y+profile.subtotalH/2+profile.subtotal*.35);ctx.textAlign="right";ctx.fillText(prospectusMoney(subtotal,currency),originX+width-profile.pad*2,y+profile.subtotalH/2+profile.subtotal*.35);ctx.textAlign="left";line(originX,y+profile.subtotalH,originX+width,y+profile.subtotalH)}
+        y+=profile.subtotalH;
+      }
+    }
+    y+=profile.gap*1.5;
+    const grand=(snapshot.sections||[]).reduce((sum,section)=>sum+prospectusSubtotal(section),0);
+    if(draw){rect(originX,y,width,profile.totalH,"#0f274b");ctx.fillStyle="#fff";setReportFont(ctx,profile.totalLabel,"bold");ctx.fillText("CALCULATED PAYABLE TOTAL",originX+profile.pad*2,y+profile.totalH/2+profile.totalLabel*.36);ctx.textAlign="right";setReportFont(ctx,profile.totalValue,"bold");ctx.fillText(prospectusMoney(grand,currency),originX+width-profile.pad*2,y+profile.totalH/2+profile.totalValue*.34);ctx.textAlign="left"}
+    y+=profile.totalH;
+    if(prospectusHasUncalculatedRates(snapshot)){
+      const warning="Recurring rates such as per-day transport or feeding are excluded from the calculated total until the school specifies the number of billable units.";
+      setReportFont(ctx,profile.detail,"normal");const warningLines=prospectusPdfWrapLines(ctx,warning,width-profile.pad*4),warningH=warningLines.length*profile.detailLine+profile.pad*2+4;
+      if(draw){rect(originX,y,width,warningH,"#fff8df");ctx.fillStyle="#6a4d12";setReportFont(ctx,profile.detail,"bold");prospectusPdfDrawLines(ctx,warningLines,originX+profile.pad*2,y+profile.pad+profile.detail,profile.detailLine)}
+      y+=warningH;
+    }
+    if(draw&&accent){ctx.fillStyle=accent;ctx.fillRect(originX,y+profile.gap,width,3)}
+    return y-originY;
+  }
+  async function prospectusCanvasPages(snapshot){
+    await ensureReportBodyFontReady();
+    const {canvas,ctx}=createReportPrintCanvas(),school=snapshot.school||{},p=prospectusRecord(snapshot),primary=idCardSafeColour(school.primary_colour,"#123a79"),accent=idCardSafeColour(school.accent_colour,"#f0b51d");
+    const W=REPORT_LOGICAL_WIDTH,H=REPORT_LOGICAL_HEIGHT,left=38,right=1202,bodyWidth=right-left,footerTop=1692;let logo=null;try{logo=await loadImage(schoolDisplayLogo(school))}catch(_){}
+    ctx.fillStyle="#ffffff";ctx.fillRect(0,0,W,H);
+
+    // Match the official report-card header structure: logo, school name, motto, address, phone, document title.
+    ctx.fillStyle=primary;ctx.fillRect(38,29,1164,199);
+    if(logo)drawImageContain(ctx,logo,57,58,140,145);
+    ctx.fillStyle="#ffffff";const schoolName=schoolDisplayName(school).toUpperCase(),title=String(p.title||"School Prospectus");
+    const schoolTitleSize=fitReportText(ctx,schoolName,977,36,22,"bold");setReportFont(ctx,schoolTitleSize,"bold");drawCenteredReportText(ctx,schoolName,205,1202,79);
+    setReportFont(ctx,16,"normal");drawCenteredReportText(ctx,school.motto||"Discipline, Commitment, Excellence",205,1202,108);
+    drawCenteredReportText(ctx,school.address||"",205,1202,132);
+    drawCenteredReportText(ctx,school.phone||"",205,1202,156);
+    const documentTitleSize=fitReportText(ctx,title,920,27,18,"bold");setReportFont(ctx,documentTitleSize,"bold");drawCenteredReportText(ctx,title,205,1202,209);
+    ctx.fillStyle=accent;ctx.fillRect(38,228,1164,5);
+
+    const status=String(p.status||"draft").toUpperCase(),revision=p.revision_no?`Revision R${number(p.revision_no)}`:"Not yet published",effective=p.effective_date?isoDate(p.effective_date):"Not set";
+    ctx.fillStyle="#17233b";setReportFont(ctx,17,"bold");ctx.fillText("Academic Year:",43,267);setReportFont(ctx,17,"normal");ctx.fillText(String(snapshot.academic_year?.name||""),173,267,350);
+    setReportFont(ctx,17,"bold");ctx.fillText("Class Range:",645,267);setReportFont(ctx,17,"normal");ctx.fillText(prospectusRangeLabel(p.class_range),765,267,427);
+    setReportFont(ctx,15,"bold");ctx.fillText("Status:",43,299);setReportFont(ctx,15,"normal");ctx.fillText(`${status} | ${revision}`,105,299,490);
+    setReportFont(ctx,15,"bold");ctx.fillText("Effective:",645,299);setReportFont(ctx,15,"normal");ctx.fillText(`${effective} | Currency: ${prospectusCurrency(snapshot)}`,725,299,467);
+    ctx.strokeStyle="#d9e1ec";ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(left,313);ctx.lineTo(right,313);ctx.stroke();
+
+    const bodyTop=327,availableBodyHeight=footerTop-bodyTop-12;
+    const profiles=[
+      {name:16,detail:12,section:14,column:10,meta:10,amount:14,basis:12,subtotal:12,totalLabel:14,totalValue:17,nameLine:18,detailLine:15,sectionLine:16,amountLine:16,basisLine:15,pad:6,detailGap:2,minRow:34,sectionH:31,noteMin:46,gap:7,subtotalH:28,totalH:45},
+      {name:15,detail:11,section:13,column:9.5,meta:9.5,amount:13,basis:11,subtotal:11,totalLabel:13,totalValue:16,nameLine:17,detailLine:14,sectionLine:15,amountLine:15,basisLine:14,pad:5,detailGap:2,minRow:31,sectionH:29,noteMin:42,gap:6,subtotalH:26,totalH:42},
+      {name:14,detail:10,section:12,column:9,meta:9,amount:12,basis:10,subtotal:10,totalLabel:12,totalValue:15,nameLine:16,detailLine:13,sectionLine:14,amountLine:14,basisLine:13,pad:4,detailGap:1,minRow:28,sectionH:27,noteMin:38,gap:5,subtotalH:24,totalH:39}
+    ];
+    let profile=profiles[0],bodyHeight=prospectusPdfProfileHeight(ctx,snapshot,profile,bodyWidth,false,0,0),scale=1,virtualWidth=bodyWidth;
+    for(const candidate of profiles){const measured=prospectusPdfProfileHeight(ctx,snapshot,candidate,bodyWidth,false,0,0);if(measured<=availableBodyHeight){profile=candidate;bodyHeight=measured;scale=1;virtualWidth=bodyWidth;break}profile=candidate;bodyHeight=measured}
+    // Use spare vertical space deliberately so ordinary prospectuses fill the sheet like the report card instead of leaving a large blank lower half.
+    if(bodyHeight<availableBodyHeight*.88){
+      const stretch=Math.min(1.3,(availableBodyHeight*.91)/Math.max(1,bodyHeight));
+      profile={...profile,nameLine:profile.nameLine*stretch,detailLine:profile.detailLine*stretch,sectionLine:profile.sectionLine*stretch,amountLine:profile.amountLine*stretch,basisLine:profile.basisLine*stretch,pad:profile.pad*stretch,detailGap:profile.detailGap*stretch,minRow:profile.minRow*stretch,sectionH:profile.sectionH*stretch,noteMin:profile.noteMin*stretch,gap:profile.gap*stretch,subtotalH:profile.subtotalH*stretch,totalH:profile.totalH*stretch};
+      bodyHeight=prospectusPdfProfileHeight(ctx,snapshot,profile,bodyWidth,false,0,0);
+    }
+    if(bodyHeight>availableBodyHeight){
+      for(let iteration=0;iteration<6;iteration++){
+        scale=Math.min(1,availableBodyHeight/Math.max(1,bodyHeight));virtualWidth=bodyWidth/scale;bodyHeight=prospectusPdfProfileHeight(ctx,snapshot,profile,virtualWidth,false,0,0);
+      }
+      scale=Math.min(1,availableBodyHeight/Math.max(1,bodyHeight));virtualWidth=bodyWidth/scale;
+    }
+    if(!(scale>0&&Number.isFinite(scale)))throw new Error("The prospectus single-page layout could not be calculated.");
+    ctx.save();ctx.translate(left,bodyTop);ctx.scale(scale,scale);prospectusPdfProfileHeight(ctx,snapshot,profile,virtualWidth,true,0,0);ctx.restore();
+
+    // Footer is fixed so an individual class-range prospectus can never spill to a second page.
+    ctx.fillStyle="#5b6b82";setReportFont(ctx,10,"normal");ctx.fillText(`Generated ${new Date().toLocaleString("en-GH")} | ${status}${p.effective_date?` | Effective ${isoDate(p.effective_date)}`:""}`,left,1720,940);
+    ctx.textAlign="right";ctx.fillText("Page 1 of 1",right,1720);ctx.textAlign="left";ctx.fillStyle=accent;ctx.fillRect(0,1736,W,18);
+    return [canvas];
+  }
+
+  async function createSchoolProspectusPdf(snapshots){if(!snapshots?.length)throw new Error("No school prospectus is available for PDF generation");const blobs=[];for(const snapshot of snapshots){const pages=await prospectusCanvasPages(snapshot);if(pages.length!==1)throw new Error("The prospectus single-page print contract failed. Refresh the system and try again.");for(const page of pages){try{blobs.push(await idCardCanvasBlob(page,.985))}finally{releaseCanvas(page)}}await sleep(10)}if(blobs.length!==snapshots.length)throw new Error("The prospectus PDF page count is inconsistent with the selected class ranges.");return imagesPdf(blobs,595.28,841.89,2480,3508)}
+  async function downloadSchoolProspectusPdf(snapshot){if(!snapshot)return;setLoading(true);try{const p=prospectusRecord(snapshot);downloadBlob(`${safeArchiveSegment(snapshot.academic_year?.name||"year")}-${safeArchiveSegment(prospectusRangeLabel(p.class_range))}-school-prospectus${p.revision_no?`-R${p.revision_no}`:"-draft"}.pdf`,await createSchoolProspectusPdf([snapshot]));toast("Prospectus PDF downloaded","Professional single-page A4 prospectus generated successfully.")}catch(error){toast("Prospectus PDF not created",friendlyError(error),"error",9000)}finally{setLoading(false)}}
 
 
   async function renderInsights(token,force=false) {
