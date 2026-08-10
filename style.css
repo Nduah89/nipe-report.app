@@ -911,3 +911,21 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .status.pending{background:#fff0d9;color:#9d5b00}.status.rejected{background:#fde7ea;color:#a82a35}.status.neutral{background:#edf1f6;color:#56647a}.status.perpetual{background:#e3f5ed;color:#08714c}.status.expired,.status.revoked{background:#fde7ea;color:#a82a35}.status.grace_period{background:#fff0d9;color:#9d5b00}
 @media(max-width:1000px){.license-capacity-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:650px){.license-capacity-grid,.detail-grid{grid-template-columns:1fr}}
+
+/* r11 Professional Student ID Card Generator */
+.id-card-template-chip{margin-left:auto;padding:8px 11px;border:1px solid var(--line);border-radius:999px;background:var(--surface-soft);color:var(--muted);font-size:11px;white-space:nowrap}
+.id-card-preview-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;align-items:start}
+.id-card-preview-grid figure{margin:0;padding:12px;border:1px solid var(--line);border-radius:14px;background:var(--surface-soft)}
+.id-card-preview-grid img{display:block;width:100%;height:auto;border-radius:9px;box-shadow:0 8px 26px rgba(15,35,65,.12)}
+.id-card-preview-grid figcaption{padding-top:8px;color:var(--muted);font-size:11px;font-weight:800;text-align:center;text-transform:uppercase;letter-spacing:.06em}
+.id-card-candidate-area{margin-top:16px}
+.id-card-candidate-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px 10px 0 0;background:var(--surface-soft);font-size:12px}
+.id-card-candidate-toolbar label{display:flex;align-items:center;gap:7px;font-weight:800}
+.id-card-candidate-results{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0;max-height:430px;overflow:auto;border:1px solid var(--line);border-top:0;border-radius:0 0 10px 10px}
+.id-card-candidate{display:flex;align-items:flex-start;gap:10px;padding:12px;border-bottom:1px solid var(--line);background:#fff;cursor:pointer}
+.id-card-candidate:nth-child(odd){border-right:1px solid var(--line)}
+.id-card-candidate span{display:grid;gap:3px;min-width:0}.id-card-candidate strong{font-size:13px}.id-card-candidate small{color:var(--muted);font-size:11px}
+.id-card-candidate.disabled{background:#f7f8fa;color:#7f8999;cursor:not-allowed}.id-card-candidate.disabled strong{color:#6b7280}
+.status.replaced{background:#edf1f6;color:#56647a}.status.expired{background:#fde7ea;color:#a82a35}
+@media(max-width:900px){.id-card-preview-grid,.id-card-candidate-results{grid-template-columns:1fr}.id-card-candidate:nth-child(odd){border-right:0}.id-card-template-chip{margin-left:0;width:100%;white-space:normal}.id-card-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:520px){.id-card-stat-grid{grid-template-columns:1fr}.id-card-preview-grid{gap:10px}}

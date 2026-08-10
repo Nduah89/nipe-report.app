@@ -88,6 +88,7 @@
     {id:"delegations",label:"Emergency Delegation",icon:"⚑",subtitle:"Temporary academic access, continuity, and Principal oversight",roles:["system_admin","principal"]},
     {id:"reports",label:"Report Cards",icon:"▤",subtitle:"Assessment, approval, and publication",hideFor:["parent_guardian"],feature:"report_cards"},
     {id:"certificates",label:"Certificates",icon:"✦",subtitle:"Promotion, completion, and teacher recognition awards",roles:["system_admin","principal"],feature:"certificates"},
+    {id:"id_cards",label:"ID Card Management",icon:"▥",subtitle:"Professional student ID cards, QR verification, printing, and lifecycle",roles:["system_admin"],feature:"id_cards"},
     {id:"insights",label:"Insights",icon:"◩",subtitle:"Performance, attendance, completion, and class trends",roles:["system_admin","principal","class_teacher","subject_teacher"],feature:"analytics"},
     {id:"children",label:"My Children",icon:"♥",subtitle:"Published academic records",roles:["parent_guardian"]},
     {id:"users",label:"Users and Access",icon:"♟",subtitle:"Roles, classes, and security",permission:"manage_users"},
@@ -102,7 +103,7 @@
 
   const ROLE_NAV_IDS = Object.freeze({
     platform_super_admin:["licensing","github"],
-    system_admin:["dashboard","operations","students","history","teachers","headteachers","academics","delegations","reports","certificates","insights","users","notifications","compliance","audit","backup_restore","license_capacity","settings"],
+    system_admin:["dashboard","operations","students","history","teachers","headteachers","academics","delegations","reports","certificates","id_cards","insights","users","notifications","compliance","audit","backup_restore","license_capacity","settings"],
     principal:["dashboard","operations","history","delegations","reports","certificates","insights","notifications","compliance"],
     class_teacher:["dashboard","my_class","attendance","my_subjects","students","history","reports","insights","notifications"],
     subject_teacher:["dashboard","my_subjects","students","history","reports","insights","notifications"],
@@ -125,7 +126,8 @@
     licenseConsole:null, schoolLicenseCapacity:null, platformPackageConsole:null, delegationConsole:null, myEmergencyDelegations:[],
     operationsConsole:null, historyStudentId:"", historyData:null, historyStudents:null, complianceConsole:null, analyticsData:null,
     certificateConsole:null, certificateConsoleYear:"", certificateConsoleType:"", certificateBatch:null, certificateBusy:false,
-    certificateSettingsTemplates:[], certificateTemplateCanvases:new Map()
+    certificateSettingsTemplates:[], certificateTemplateCanvases:new Map(),
+    idCardConsole:null, idCardYear:"", idCardClass:"", idCardStatus:"", idCardBusy:false
   };
 
   const $ = (selector, root=document) => root.querySelector(selector);
@@ -147,7 +149,15 @@
   const can = key => Boolean(state.boot?.permissions?.[key]);
   const licenseState = () => state.boot?.license || {};
   const licenseCanWrite = () => licenseState().write_allowed !== false;
-  const licenseFeatureEnabled = code => role()==="platform_super_admin" || licenseState()?.plan?.feature_flags?.[code] === true;
+  function licenseFeatureEnabled(code) {
+    if(role()==="platform_super_admin")return true;
+    const flags=licenseState()?.plan?.feature_flags||{};
+    if(Object.prototype.hasOwnProperty.call(flags,code))return flags[code]===true;
+    // Existing signed r10 school entitlements predate the id_cards flag. Preserve their
+    // core-records entitlement without weakening explicit future plan restrictions.
+    if(code==="id_cards")return flags.core_records===true;
+    return false;
+  }
   function dateTimeLocalValue(value) {
     if(!value)return "";
     const date=new Date(value);if(Number.isNaN(date.getTime()))return "";
@@ -607,8 +617,9 @@
     const verifyToken=params.get("verify");
     const transcriptToken=params.get("transcript");
     const certificateToken=params.get("certificate");
-    if(verifyToken||transcriptToken||certificateToken) {
-      await showVerification(verifyToken||transcriptToken||certificateToken,certificateToken?"certificate":transcriptToken?"transcript":"report");
+    const idCardToken=params.get("idcard");
+    if(verifyToken||transcriptToken||certificateToken||idCardToken) {
+      await showVerification(verifyToken||transcriptToken||certificateToken||idCardToken,idCardToken?"idcard":certificateToken?"certificate":transcriptToken?"transcript":"report");
       setLoading(false);
       return;
     }
@@ -652,7 +663,7 @@
     stopGeneratedLicenseRefresh();
     disconnectRealtime();
     await state.client?.auth.signOut();
-    state.boot=null;state.session=null;state.initialized=false;state.reportTemplates=null;state.reportTemplatesLoadedAt=0;state.licenseConsole=null;state.schoolLicenseCapacity=null;state.platformPackageConsole=null;state.platformPackageOffset=0;state.platformPackageSearch="";state.packageGenerationKey="";state.licenseRefreshBusy=false;state.lastLicenseVerifiedAt=0;state.delegationConsole=null;state.myEmergencyDelegations=[];state.operationsConsole=null;state.historyStudentId="";state.historyData=null;state.historyStudents=null;state.complianceConsole=null;state.analyticsData=null;state.certificateConsole=null;state.certificateBatch=null;state.certificateSettingsTemplates=[];state.certificateTemplateCanvases.clear();
+    state.boot=null;state.session=null;state.initialized=false;state.reportTemplates=null;state.reportTemplatesLoadedAt=0;state.licenseConsole=null;state.schoolLicenseCapacity=null;state.platformPackageConsole=null;state.platformPackageOffset=0;state.platformPackageSearch="";state.packageGenerationKey="";state.licenseRefreshBusy=false;state.lastLicenseVerifiedAt=0;state.delegationConsole=null;state.myEmergencyDelegations=[];state.operationsConsole=null;state.historyStudentId="";state.historyData=null;state.historyStudents=null;state.complianceConsole=null;state.analyticsData=null;state.certificateConsole=null;state.certificateBatch=null;state.certificateSettingsTemplates=[];state.certificateTemplateCanvases.clear();state.idCardConsole=null;state.idCardYear="";state.idCardClass="";state.idCardStatus="";state.idCardBusy=false;
     clearPrivateStorageCaches();
     showOnly("authView");setLoading(false);
   }
@@ -845,7 +856,7 @@
     const token=state.viewToken;
     try {
       const renderer={
-        dashboard:renderDashboard,operations:renderOperations,licensing:renderLicensing,my_class:renderMyClass,attendance:renderAttendance,my_subjects:renderMySubjects,students:renderStudents,history:renderAcademicHistory,teachers:renderTeachers,headteachers:renderPrincipals,academics:renderAcademics,delegations:renderEmergencyDelegations,reports:renderReports,certificates:renderCertificates,insights:renderInsights,
+        dashboard:renderDashboard,operations:renderOperations,licensing:renderLicensing,my_class:renderMyClass,attendance:renderAttendance,my_subjects:renderMySubjects,students:renderStudents,history:renderAcademicHistory,teachers:renderTeachers,headteachers:renderPrincipals,academics:renderAcademics,delegations:renderEmergencyDelegations,reports:renderReports,certificates:renderCertificates,id_cards:renderIdCards,insights:renderInsights,
         children:renderChildren,users:renderUsers,notifications:renderNotifications,compliance:renderCompliance,audit:renderAudit,backup_restore:renderBackupRestore,license_capacity:renderSchoolLicenseCapacity,settings:renderSettings,github:renderGithubNavigator
       }[view];
       await renderer?.(token,force);
@@ -886,9 +897,10 @@
   function handleRealtime(topic,payload) {
     state.lastSync=new Date();setSync("online","Live");
     const table=payload?.payload?.table||payload?.table||"";
-    if(["profiles","user_class_access","teachers","headteachers","classes","subjects","class_subjects","grading_scales","students","enrollments","student_reports","subject_results","class_attendance_registers","student_attendance_entries","emergency_academic_delegations","academic_period_controls","report_correction_requests","student_lifecycle_events","transcript_issuances","privacy_requests","security_events","recovery_test_runs","certificate_templates","teacher_award_categories","certificate_batches","certificates","certificate_events"].includes(table))state.workspace=null;
+    if(["profiles","user_class_access","teachers","headteachers","classes","subjects","class_subjects","grading_scales","students","enrollments","student_reports","subject_results","class_attendance_registers","student_attendance_entries","emergency_academic_delegations","academic_period_controls","report_correction_requests","student_lifecycle_events","transcript_issuances","privacy_requests","security_events","recovery_test_runs","certificate_templates","teacher_award_categories","certificate_batches","certificates","certificate_events","id_card_settings","student_id_cards","id_card_events"].includes(table))state.workspace=null;
     if(table==="students"||table==="enrollments")state.historyStudents=null;
     if(table==="certificate_templates"){state.certificateConsole=null;state.certificateSettingsTemplates=[];state.certificateTemplateCanvases.clear()}
+    if(["id_card_settings","student_id_cards","id_card_events"].includes(table))state.idCardConsole=null;
     if(table==="report_card_templates"){state.reportTemplates=null;state.reportTemplatesLoadedAt=0;state.templateUrls.clear();state.templateCanvases.clear()}
     if(topic.startsWith("user:")||table==="notifications") loadNotificationCount();
     clearTimeout(handleRealtime.timer);
@@ -906,6 +918,7 @@
       else if(state.view==="delegations") renderEmergencyDelegations(state.viewToken,true);
       else if(state.view==="operations") renderOperations(state.viewToken,true);
       else if(state.view==="certificates") renderCertificates(state.viewToken,true);
+      else if(state.view==="id_cards") renderIdCards(state.viewToken,true);
       else if(state.view==="history") renderAcademicHistory(state.viewToken,true);
       else if(state.view==="insights") renderInsights(state.viewToken,true);
       else if(state.view==="compliance") renderCompliance(state.viewToken,true);
@@ -1436,7 +1449,12 @@
         const previousPhotoPath=record.student?.photo_url||"";
         saved=await rpc("set_student_photo",{target_student_id:saved.student.id,target_photo_url:uploadedPhotoPath,expected_updated_at:saved.student.updated_at||null});
         const committedPhotoPath=uploadedPhotoPath;uploadedPhotoPath="";photoSaved=true;
-        if(previousPhotoPath&&previousPhotoPath!==committedPhotoPath)await removePrivateStorageObjects(CONFIG.photoBucket,[previousPhotoPath],{source:"student_photo_replacement_cleanup",student_id:saved.student.id},true);
+        if(previousPhotoPath&&previousPhotoPath!==committedPhotoPath){
+          let retainedForIssuedCard=true;
+          try{retainedForIssuedCard=Number(await rpc("id_card_photo_reference_count",{target_student_id:saved.student.id,target_photo_path:previousPhotoPath}))>0}
+          catch(error){await reportClientError(error,{source:"id_card_photo_retention_check",student_id:saved.student.id});retainedForIssuedCard=true}
+          if(!retainedForIssuedCard)await removePrivateStorageObjects(CONFIG.photoBucket,[previousPhotoPath],{source:"student_photo_replacement_cleanup",student_id:saved.student.id},true);
+        }
       } catch(error) {
         if(uploadedPhotoPath)await removePrivateStorageObjects(CONFIG.photoBucket,[uploadedPhotoPath],{source:"student_photo_upload_rollback",student_id:saved.student.id},true);
         await reportClientError(error,{source:"student_save",stage:"photo",student_id:saved.student.id});
@@ -5695,7 +5713,7 @@
     if(role()!=="system_admin")throw new Error("School System Administrator access required");
     if(force||!state.schoolLicenseCapacity)state.schoolLicenseCapacity=await rpc("get_school_license_capacity_console");
     if(token!==state.viewToken)return;
-    const data=state.schoolLicenseCapacity||{},snapshot=data.snapshot||{},plan=data.plan||{},capacity=Array.isArray(data.capacity)?data.capacity:[],features=data.feature_flags&&typeof data.feature_flags==="object"?data.feature_flags:{},storage=Array.isArray(data.storage_buckets)?data.storage_buckets:[],history=Array.isArray(data.verification_history)?data.verification_history:[];
+    const data=state.schoolLicenseCapacity||{},snapshot=data.snapshot||{},plan=data.plan||{},capacity=Array.isArray(data.capacity)?data.capacity:[],features={...(data.feature_flags&&typeof data.feature_flags==="object"?data.feature_flags:{})},storage=Array.isArray(data.storage_buckets)?data.storage_buckets:[],history=Array.isArray(data.verification_history)?data.verification_history:[];if(!Object.prototype.hasOwnProperty.call(features,"id_cards"))features.id_cards=licenseFeatureEnabled("id_cards");
     const status=String(snapshot.computed_status||"unknown"),accessMode=String(snapshot.access_mode||"unknown"),activeFeatures=Object.entries(features).filter(([,enabled])=>enabled===true),disabledFeatures=Object.entries(features).filter(([,enabled])=>enabled!==true);
     const expiryText=snapshot.expires_at?isoDateTime(snapshot.expires_at):status==="perpetual"||String(plan.billing_cycle||"")==="perpetual"?"No expiry":"Not specified";
     const daysRemaining=snapshot.days_remaining===null||snapshot.days_remaining===undefined?"—":number(snapshot.days_remaining);
@@ -5849,6 +5867,118 @@
     {value:"teacher_recognition",label:"Teacher Recognition",requiresTerm:false,requiresClass:false}
   ]);
   function certificateTypeLabel(value){return CERTIFICATE_TYPES.find(item=>item.value===value)?.label||String(value||"Certificate").replaceAll("_"," ")}
+  // ---------------------------------------------------------------------------
+  // Professional Student ID Card Generator r11
+  // CR80 85.60 x 53.98 mm, rendered at approximately 300 PPI (1011 x 638 px).
+  // Issued cards render from their immutable database snapshot so historical cards
+  // never change when a student later changes class, profile, or academic year.
+  // ---------------------------------------------------------------------------
+  const ID_CARD_WIDTH=1011,ID_CARD_HEIGHT=638,ID_CARD_A4_WIDTH=2480,ID_CARD_A4_HEIGHT=3508,ID_CARD_BATCH_MAX=50;
+  function idCardVerificationUrl(token){
+    const school=state.boot?.school||{},base=school.verification_base_url||`${location.origin}${location.pathname}`;
+    return `${base}${base.includes("?")?"&":"?"}idcard=${encodeURIComponent(token)}`;
+  }
+  function idCardSettingsDefaults(raw={}){return {
+    template_code:["classic","modern","minimal"].includes(raw.template_code)?raw.template_code:"modern",
+    card_title:String(raw.card_title||"STUDENT ID CARD").slice(0,80),validity_months:Number(raw.validity_months||12),
+    show_date_of_birth:raw.show_date_of_birth===true,show_gender:raw.show_gender===true,show_guardian_phone:raw.show_guardian_phone===true,
+    show_school_address:raw.show_school_address!==false,show_school_phone:raw.show_school_phone!==false,show_school_email:raw.show_school_email!==false,
+    back_message:String(raw.back_message||"This card remains the property of the school. If found, please return it to the school administration.").slice(0,500)
+  }}
+  function idCardComputedStatus(card){return String(card?.computed_status||card?.status||"unknown")}
+  function idCardStatusBadge(card){return statusBadge(idCardComputedStatus(card))}
+  function idCardAddMonths(value,months){const d=new Date(`${value}T12:00:00Z`);if(Number.isNaN(d.getTime()))return value;d.setUTCMonth(d.getUTCMonth()+Number(months||12));return d.toISOString().slice(0,10)}
+  function idCardSafeColour(value,fallback){return /^#[0-9a-f]{6}$/i.test(String(value||""))?String(value):fallback}
+  function idCardCanvasBlob(canvas,quality=.97){return new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(new Error("ID card image could not be encoded")),"image/jpeg",quality))}
+  function releaseCanvas(canvas){if(canvas){canvas.width=1;canvas.height=1}}
+  function fitIdCardText(ctx,text,maxWidth,size,minSize=18,weight=700,family='Arial, Helvetica, sans-serif'){
+    let current=size;ctx.font=`${weight} ${current}px ${family}`;while(current>minSize&&ctx.measureText(String(text||"")).width>maxWidth){current-=1;ctx.font=`${weight} ${current}px ${family}`}return current
+  }
+  function idCardInitials(name){return String(name||"Student").split(/\s+/).filter(Boolean).slice(0,2).map(v=>v[0]?.toUpperCase()||"").join("")||"ID"}
+  async function idCardQrCanvas(text,size=250){
+    const box=byId("qrScratch");if(!box)throw new Error("QR rendering container is unavailable");box.innerHTML="";if(!window.QRCode)throw new Error("QR rendering library is unavailable");
+    new window.QRCode(box,{text,width:size,height:size,correctLevel:window.QRCode.CorrectLevel.M});await sleep(90);
+    const rendered=box.querySelector("canvas")||box.querySelector("img");if(!rendered)throw new Error("QR verification code could not be rendered");return rendered;
+  }
+  async function idCardAssets(card){
+    const snap=card?.snapshot||{},student=snap.student||{},school=snap.school||{};let logo=null,photo=null;
+    try{logo=await loadImage(String(school.logo_url||schoolDisplayLogo()))}catch(_){try{logo=await loadImage(schoolDisplayLogo())}catch(__){}}
+    if(student.photo_url){try{photo=await loadPrivateImageAsset(CONFIG.photoBucket,student.photo_url,"Student ID photograph")}catch(error){await reportClientError(error,{source:"id_card_photo",card_id:card?.id||""}).catch(()=>{})}}
+    return {logo,photo};
+  }
+  async function drawStudentIdCard(card,side="front"){
+    const snap=card?.snapshot||{},student=snap.student||{},academic=snap.academic||{},school=snap.school||{},settings=idCardSettingsDefaults(snap.template||{}),canvas=document.createElement("canvas");canvas.width=ID_CARD_WIDTH;canvas.height=ID_CARD_HEIGHT;
+    const ctx=canvas.getContext("2d"),primary=idCardSafeColour(school.primary_colour,"#0a2f73"),accent=idCardSafeColour(school.accent_colour,"#f1b51c"),verification=idCardVerificationUrl(card.verification_token||snap.card?.verification_token||"");let logo=null,photo=null;if(side==="front")({logo,photo}=await idCardAssets(card));
+    ctx.fillStyle="#ffffff";ctx.fillRect(0,0,canvas.width,canvas.height);ctx.textBaseline="alphabetic";
+    if(settings.template_code==="minimal"){ctx.fillStyle=primary;ctx.fillRect(0,0,22,canvas.height);ctx.fillStyle=accent;ctx.fillRect(22,0,8,canvas.height)}
+    else if(settings.template_code==="classic"){ctx.strokeStyle=primary;ctx.lineWidth=16;ctx.strokeRect(8,8,canvas.width-16,canvas.height-16);ctx.fillStyle=accent;ctx.fillRect(16,104,canvas.width-32,8)}
+    else{ctx.fillStyle=primary;ctx.fillRect(0,0,canvas.width,122);ctx.fillStyle=accent;ctx.fillRect(0,122,canvas.width,13);ctx.fillRect(0,canvas.height-18,canvas.width,18)}
+    if(side==="front"){
+      if(logo){ctx.fillStyle="#fff";ctx.fillRect(42,22,82,82);drawImageContain(ctx,logo,46,26,74,74)}
+      ctx.fillStyle=settings.template_code==="modern"?"#fff":primary;fitIdCardText(ctx,school.school_name||schoolDisplayName(),650,34,22,800);ctx.fillText(String(school.school_name||schoolDisplayName()).toUpperCase(),145,62,650);
+      ctx.font="700 22px Arial";ctx.fillStyle=settings.template_code==="modern"?accent:primary;ctx.fillText(settings.card_title.toUpperCase(),145,96);
+      if(school.motto){ctx.font="italic 16px Arial";ctx.fillStyle=settings.template_code==="modern"?"#eaf2ff":"#56647a";ctx.fillText(String(school.motto).slice(0,90),145,119,650)}
+      const px=54,py=176,pw=242,ph=316;ctx.fillStyle="#eef3fa";ctx.fillRect(px,py,pw,ph);ctx.strokeStyle="#b9c6d8";ctx.lineWidth=3;ctx.strokeRect(px,py,pw,ph);
+      if(photo)drawImageCover(ctx,photo,px+5,py+5,pw-10,ph-10);else{ctx.fillStyle=primary;ctx.font="800 74px Arial";ctx.textAlign="center";ctx.fillText(idCardInitials(student.full_name),px+pw/2,py+ph/2+26);ctx.textAlign="left"}
+      let y=196;ctx.fillStyle="#64748b";ctx.font="700 15px Arial";ctx.fillText("STUDENT NAME",330,y);y+=38;ctx.fillStyle="#10213c";fitIdCardText(ctx,student.full_name||"Student",445,34,21,850);ctx.fillText(student.full_name||"Student",330,y,445);y+=42;
+      const field=(label,value)=>{ctx.fillStyle="#718096";ctx.font="700 14px Arial";ctx.fillText(label,330,y);y+=25;ctx.fillStyle="#132443";fitIdCardText(ctx,value||"—",420,23,17,750);ctx.fillText(String(value||"—"),330,y,420);y+=37};
+      field("ADMISSION NUMBER",student.admission_no);field("CLASS",academic.class_name);field("ACADEMIC YEAR",academic.academic_year_name);
+      if(settings.show_gender&&student.gender)field("GENDER",student.gender);if(settings.show_date_of_birth&&student.date_of_birth)field("DATE OF BIRTH",isoDate(student.date_of_birth));
+      const qr=await idCardQrCanvas(verification,230);if(qr){ctx.fillStyle="#fff";ctx.fillRect(802,350,174,174);ctx.drawImage(qr,811,359,156,156)}
+      ctx.fillStyle="#64748b";ctx.font="700 13px Arial";ctx.textAlign="center";ctx.fillText("SCAN TO VERIFY",889,536);ctx.textAlign="left";
+      ctx.fillStyle="#10213c";ctx.font="800 18px monospace";ctx.fillText(card.card_number||snap.card?.card_number||"",54,542,720);ctx.font="600 15px Arial";ctx.fillStyle="#56647a";ctx.fillText(`Issued ${isoDate(card.issue_date||snap.card?.issue_date)}  •  Expires ${isoDate(card.expires_on||snap.card?.expires_on)}`,54,579,720);
+    }else{
+      ctx.fillStyle=primary;ctx.fillRect(0,0,canvas.width,98);ctx.fillStyle="#fff";ctx.font="850 28px Arial";ctx.textAlign="center";ctx.fillText(String(school.school_name||schoolDisplayName()).toUpperCase(),canvas.width/2,59,850);ctx.textAlign="left";
+      const qr=await idCardQrCanvas(verification,300);if(qr){ctx.fillStyle="#fff";ctx.fillRect(62,156,260,260);ctx.strokeStyle="#d9e0ea";ctx.lineWidth=2;ctx.strokeRect(62,156,260,260);ctx.drawImage(qr,76,170,232,232)}
+      ctx.fillStyle="#132443";ctx.font="850 22px Arial";ctx.fillText("VERIFY THIS CARD",364,170);ctx.fillStyle="#56647a";ctx.font="500 17px Arial";drawWrapped(ctx,"Scan the QR code to confirm whether this issued student ID card is valid, expired, revoked, or replaced.",364,205,570,25,4);
+      let cy=315;const contact=[];if(settings.show_school_address&&school.address)contact.push(["Address",school.address]);if(settings.show_school_phone&&school.phone)contact.push(["Phone",school.phone]);if(settings.show_school_email&&school.email)contact.push(["Email",school.email]);if(school.website)contact.push(["Website",school.website]);if(settings.show_guardian_phone&&student.guardian_phone)contact.push(["Guardian contact",student.guardian_phone]);
+      for(const [label,value] of contact.slice(0,5)){ctx.fillStyle="#718096";ctx.font="700 14px Arial";ctx.fillText(`${label.toUpperCase()}:`,364,cy);ctx.fillStyle="#132443";ctx.font="600 16px Arial";ctx.fillText(String(value),485,cy,470);cy+=28}
+      ctx.fillStyle="#334155";ctx.font="500 16px Arial";drawWrapped(ctx,settings.back_message,62,475,895,23,3);ctx.fillStyle="#64748b";ctx.font="700 13px Arial";ctx.fillText("CARD NUMBER",62,570);ctx.fillStyle="#10213c";ctx.font="800 18px monospace";ctx.fillText(card.card_number||snap.card?.card_number||"",180,570,600);ctx.fillStyle=accent;ctx.fillRect(0,canvas.height-18,canvas.width,18);
+    }
+    return canvas;
+  }
+  async function createStudentIdCardPdf(card){
+    const blobs=[];for(const side of ["front","back"]){const canvas=await drawStudentIdCard(card,side);try{blobs.push(await idCardCanvasBlob(canvas,.985))}finally{releaseCanvas(canvas)}}
+    const widthPt=85.60/25.4*72,heightPt=53.98/25.4*72;return imagesPdf(blobs,widthPt,heightPt,ID_CARD_WIDTH,ID_CARD_HEIGHT);
+  }
+  async function previewStudentIdCard(card){
+    setLoading(true);try{const front=await drawStudentIdCard(card,"front"),back=await drawStudentIdCard(card,"back"),frontUrl=front.toDataURL("image/jpeg",.9),backUrl=back.toDataURL("image/jpeg",.9);releaseCanvas(front);releaseCanvas(back);modal("Student ID Card Preview",`${card.student_name||card.snapshot?.student?.full_name||"Student"} • ${card.card_number}`,`<div class="id-card-preview-grid"><figure><img src="${frontUrl}" alt="Student ID card front"><figcaption>Front</figcaption></figure><figure><img src="${backUrl}" alt="Student ID card back"><figcaption>Back</figcaption></figure></div>`,`<button class="button ghost" id="idCardPreviewClose">Close</button><button class="button primary" id="idCardPreviewDownload">Download front + back PDF</button>`,`large`);byId("idCardPreviewClose").onclick=closeModal;byId("idCardPreviewDownload").onclick=async()=>{const button=byId("idCardPreviewDownload");button.disabled=true;try{downloadBlob(`${safeArchiveSegment(card.card_number||"student-id")}.pdf`,await createStudentIdCardPdf(card));toast("ID card PDF downloaded")}catch(error){toast("ID card not downloaded",friendlyError(error),"error",8000)}finally{button.disabled=false}}}catch(error){toast("Preview unavailable",friendlyError(error),"error",8000)}finally{setLoading(false)}
+  }
+  async function drawIdCardA4Sheet(cards,side){
+    const sheet=document.createElement("canvas");sheet.width=ID_CARD_A4_WIDTH;sheet.height=ID_CARD_A4_HEIGHT;const ctx=sheet.getContext("2d");ctx.fillStyle="#fff";ctx.fillRect(0,0,sheet.width,sheet.height);
+    const scale=1,cw=Math.round(ID_CARD_WIDTH*scale),ch=Math.round(ID_CARD_HEIGHT*scale),gapX=80,gapY=35,totalW=cw*2+gapX,totalH=ch*5+gapY*4,startX=Math.round((sheet.width-totalW)/2),startY=Math.round((sheet.height-totalH)/2);
+    for(let i=0;i<cards.length;i+=1){const row=Math.floor(i/2),col=i%2,printCol=side==="back"?1-col:col,x=startX+printCol*(cw+gapX),y=startY+row*(ch+gapY),cardCanvas=await drawStudentIdCard(cards[i],side);ctx.drawImage(cardCanvas,x,y,cw,ch);ctx.strokeStyle="#d8dee8";ctx.lineWidth=2;ctx.strokeRect(x,y,cw,ch);releaseCanvas(cardCanvas)}
+    return sheet;
+  }
+  async function createIdCardBatchA4Pdf(cards){
+    if(!cards.length)throw new Error("No ID cards are available for batch printing");if(cards.length>ID_CARD_BATCH_MAX)throw new Error(`Batch printing is limited to ${ID_CARD_BATCH_MAX} cards per PDF for device memory safety. Filter to one class or a smaller set.`);
+    const pages=[];for(let offset=0;offset<cards.length;offset+=10){const group=cards.slice(offset,offset+10);for(const side of ["front","back"]){const sheet=await drawIdCardA4Sheet(group,side);try{pages.push(await idCardCanvasBlob(sheet,.97))}finally{releaseCanvas(sheet)}}await sleep(20)}
+    return imagesPdf(pages,595.28,841.89,ID_CARD_A4_WIDTH,ID_CARD_A4_HEIGHT);
+  }
+  async function downloadIdCardBatchA4(cards){if(state.idCardBusy)return;state.idCardBusy=true;setLoading(true);try{const eligible=cards.filter(card=>["active","expired"].includes(idCardComputedStatus(card)));if(!eligible.length)throw new Error("No active or expired issued cards are available in this filter");const pdf=await createIdCardBatchA4Pdf(eligible);downloadBlob(`student-id-cards-${safeArchiveSegment(state.idCardYear||"school")}-${safeArchiveSegment(state.idCardClass||"all")}.pdf`,pdf);toast("Printable ID cards downloaded",`${eligible.length} card${eligible.length===1?"":"s"} prepared as duplex A4 front/back sheets.`)}catch(error){toast("Batch PDF not created",friendlyError(error),"error",9000);await reportClientError(error,{source:"id_card_batch_pdf"})}finally{state.idCardBusy=false;setLoading(false)}}
+  function renderIdCardStats(stats={}){return `<div class="stat-grid id-card-stat-grid"><div class="stat-card"><div class="stat-icon blue">▥</div><div><span>Issued records</span><strong>${number(stats.total)}</strong></div></div><div class="stat-card"><div class="stat-icon green">✓</div><div><span>Active</span><strong>${number(stats.active)}</strong></div></div><div class="stat-card"><div class="stat-icon gold">⌛</div><div><span>Expired</span><strong>${number(stats.expired)}</strong></div></div><div class="stat-card"><div class="stat-icon red">×</div><div><span>Revoked / replaced</span><strong>${number(Number(stats.revoked||0)+Number(stats.replaced||0))}</strong></div></div></div>`}
+  async function renderIdCards(token,force=false){
+    if(role()!=="system_admin")throw new Error("Only the System Administrator can manage student ID cards");
+    const years=state.boot?.academic_years||[],classes=state.boot?.classes||[];state.idCardYear=byId("idCardYear")?.value||state.idCardYear||activeYear()?.id||years[0]?.id||"";state.idCardClass=byId("idCardClass")?.value??state.idCardClass;state.idCardStatus=byId("idCardStatus")?.value??state.idCardStatus;
+    if(force||!state.idCardConsole)state.idCardConsole=await rpc("get_id_card_console",{target_academic_year_id:state.idCardYear||null,target_class_id:state.idCardClass||null,target_status:state.idCardStatus||null});if(token!==state.viewToken)return;
+    const data=state.idCardConsole||{},cards=data.cards||[],settings=idCardSettingsDefaults(data.settings||{});
+    byId("content").innerHTML=`<div class="page-head"><div><h3>ID Card Management</h3><p>Issue immutable front-and-back CR80 student cards with QR verification, lifecycle controls, and professional printing.</p></div><div class="page-actions"><button class="button outline" id="idCardSettingsButton">Card settings</button><button class="button secondary" id="idCardBatchButton" ${cards.length?"":"disabled"}>Download printable A4</button><button class="button primary" id="idCardGenerateButton">Generate ID cards</button></div></div>${renderIdCardStats(data.stats||{})}<section class="panel"><div class="toolbar"><select id="idCardYear">${years.map(y=>`<option value="${attr(y.id)}" ${y.id===state.idCardYear?"selected":""}>${esc(y.name)}</option>`).join("")}</select><select id="idCardClass"><option value="">All classes</option>${classes.map(c=>`<option value="${attr(c.id)}" ${c.id===state.idCardClass?"selected":""}>${esc(c.name)}</option>`).join("")}</select><select id="idCardStatus"><option value="">All statuses</option>${["active","expired","revoked","replaced"].map(v=>`<option value="${v}" ${v===state.idCardStatus?"selected":""}>${esc(statusText(v))}</option>`).join("")}</select><div class="id-card-template-chip">Template: <strong>${esc(statusText(settings.template_code))}</strong> • ${settings.validity_months} month validity</div></div>${cards.length?`<div class="table-shell"><table><thead><tr><th>Student</th><th>Class / year</th><th>Card number</th><th>Issue / expiry</th><th>Status</th><th>Revision</th><th></th></tr></thead><tbody>${cards.map(card=>`<tr><td><div class="cell-copy"><strong>${esc(card.student_name)}</strong><small>${esc(card.admission_no||"")}</small></div></td><td><div class="cell-copy"><strong>${esc(card.class_name||"")}</strong><small>${esc(card.academic_year_name||"")}</small></div></td><td><code>${esc(card.card_number)}</code></td><td><div class="cell-copy"><strong>${esc(isoDate(card.issue_date))}</strong><small>Expires ${esc(isoDate(card.expires_on))}</small></div></td><td>${idCardStatusBadge(card)}</td><td>R${number(card.revision_no||1)}</td><td><div class="button-row"><button class="button ghost small" data-id-card-preview="${attr(card.id)}">Preview</button><button class="button outline small" data-id-card-download="${attr(card.id)}">PDF</button>${card.status==="active"?`<button class="button secondary small" data-id-card-replace="${attr(card.id)}">Replace</button><button class="button danger small" data-id-card-revoke="${attr(card.id)}">Revoke</button>`:""}</div></td></tr>`).join("")}</tbody></table></div>`:emptyState("No ID cards in this filter","Generate cards for an active class or adjust the filters.")}</section>`;
+    const cardById=id=>cards.find(card=>card.id===id);byId("idCardYear").onchange=()=>{state.idCardYear=byId("idCardYear").value;state.idCardConsole=null;renderIdCards(state.viewToken,true)};byId("idCardClass").onchange=()=>{state.idCardClass=byId("idCardClass").value;state.idCardConsole=null;renderIdCards(state.viewToken,true)};byId("idCardStatus").onchange=()=>{state.idCardStatus=byId("idCardStatus").value;state.idCardConsole=null;renderIdCards(state.viewToken,true)};byId("idCardSettingsButton").onclick=()=>openIdCardSettings(settings);byId("idCardGenerateButton").onclick=openIdCardGenerator;byId("idCardBatchButton").onclick=()=>downloadIdCardBatchA4(cards);
+    $$('[data-id-card-preview]').forEach(button=>button.onclick=()=>previewStudentIdCard(cardById(button.dataset.idCardPreview)));$$('[data-id-card-download]').forEach(button=>button.onclick=async()=>{const card=cardById(button.dataset.idCardDownload);button.disabled=true;try{downloadBlob(`${safeArchiveSegment(card.card_number)}.pdf`,await createStudentIdCardPdf(card));toast("ID card PDF downloaded")}catch(error){toast("ID card not downloaded",friendlyError(error),"error",8000)}finally{button.disabled=false}});$$('[data-id-card-revoke]').forEach(button=>button.onclick=()=>revokeIdCard(cardById(button.dataset.idCardRevoke)));$$('[data-id-card-replace]').forEach(button=>button.onclick=()=>replaceIdCard(cardById(button.dataset.idCardReplace)));
+  }
+  function openIdCardSettings(settings){
+    const cfg=idCardSettingsDefaults(settings);modal("ID Card Settings","Controlled templates keep generated cards safe, consistent, and compatible across web, Android, Windows, and print.",`<form id="idCardSettingsForm" class="form-grid"><label class="field"><span>Template</span><select name="template_code">${["modern","classic","minimal"].map(v=>`<option value="${v}" ${cfg.template_code===v?"selected":""}>${esc(statusText(v))}</option>`).join("")}</select></label><label class="field"><span>Default validity (months)</span><input name="validity_months" type="number" min="1" max="60" value="${attr(cfg.validity_months)}" required></label><label class="field full"><span>Card title</span><input name="card_title" maxlength="80" value="${attr(cfg.card_title)}" required></label><div class="field full"><span>Optional fields</span><div class="check-grid"><label><input type="checkbox" name="show_date_of_birth" ${cfg.show_date_of_birth?"checked":""}> Date of birth</label><label><input type="checkbox" name="show_gender" ${cfg.show_gender?"checked":""}> Gender</label><label><input type="checkbox" name="show_guardian_phone" ${cfg.show_guardian_phone?"checked":""}> Guardian phone on back</label><label><input type="checkbox" name="show_school_address" ${cfg.show_school_address?"checked":""}> School address</label><label><input type="checkbox" name="show_school_phone" ${cfg.show_school_phone?"checked":""}> School phone</label><label><input type="checkbox" name="show_school_email" ${cfg.show_school_email?"checked":""}> School email</label></div></div><label class="field full"><span>Back-of-card message</span><textarea name="back_message" maxlength="500" rows="4">${esc(cfg.back_message)}</textarea></label></form>`,`<button class="button ghost" id="idCardSettingsCancel">Cancel</button><button class="button primary" id="idCardSettingsSave">Save settings</button>`,`medium`);byId("idCardSettingsCancel").onclick=closeModal;byId("idCardSettingsSave").onclick=async()=>{const form=byId("idCardSettingsForm"),values=formObject(form),button=byId("idCardSettingsSave");button.disabled=true;try{const payload={...values,show_date_of_birth:form.elements.show_date_of_birth.checked,show_gender:form.elements.show_gender.checked,show_guardian_phone:form.elements.show_guardian_phone.checked,show_school_address:form.elements.show_school_address.checked,show_school_phone:form.elements.show_school_phone.checked,show_school_email:form.elements.show_school_email.checked};await rpc("save_id_card_settings",{payload});closeModal();state.idCardConsole=null;toast("ID card settings saved");await renderIdCards(state.viewToken,true)}catch(error){toast("Settings not saved",friendlyError(error),"error",8000)}finally{button.disabled=false}};
+  }
+  async function openIdCardGenerator(){
+    const years=state.boot?.academic_years||[],classes=state.boot?.classes||[],settings=idCardSettingsDefaults(state.idCardConsole?.settings||{}),today=new Date().toISOString().slice(0,10),expires=idCardAddMonths(today,settings.validity_months);modal("Generate Student ID Cards","Choose one academic year and class. Existing active cards are protected from accidental duplicate issuance.",`<form id="idCardGenerateForm" class="form-grid"><label class="field"><span>Academic year</span><select name="academic_year_id" required>${years.map(y=>`<option value="${attr(y.id)}" ${y.id===(state.idCardYear||activeYear()?.id)?"selected":""}>${esc(y.name)}</option>`).join("")}</select></label><label class="field"><span>Class</span><select name="class_id" required><option value="">Select class</option>${classes.map(c=>`<option value="${attr(c.id)}" ${c.id===state.idCardClass?"selected":""}>${esc(c.name)}</option>`).join("")}</select></label><label class="field"><span>Issue date</span><input type="date" name="issue_date" value="${today}" required></label><label class="field"><span>Expiry date</span><input type="date" name="expires_on" value="${expires}" required></label><label class="field full"><span>Find student</span><input id="idCardCandidateSearch" type="search" placeholder="Name or admission number"></label></form><div class="id-card-candidate-area"><div class="empty"><strong>Select a class</strong><span>Eligible active students will appear here.</span></div></div>`,`<button class="button ghost" id="idCardGenerateCancel">Cancel</button><button class="button primary" id="idCardIssueSelected" disabled>Issue selected cards</button>`,`large`);const form=byId("idCardGenerateForm"),area=$(".id-card-candidate-area");byId("idCardGenerateCancel").onclick=closeModal;
+    const syncExpiry=()=>{const value=form.elements.issue_date.value;if(value)form.elements.expires_on.value=idCardAddMonths(value,settings.validity_months)};form.elements.issue_date.onchange=syncExpiry;
+    let candidates=[];const renderCandidates=()=>{const needle=byId("idCardCandidateSearch").value.trim().toLowerCase(),visible=candidates.filter(item=>!needle||`${item.full_name} ${item.admission_no}`.toLowerCase().includes(needle));area.innerHTML=visible.length?`<div class="id-card-candidate-toolbar"><label><input type="checkbox" id="idCardSelectAll"> Select all eligible</label><span>${visible.length} student${visible.length===1?"":"s"}</span></div><div class="id-card-candidate-results">${visible.map(item=>`<label class="id-card-candidate ${item.active_card_id?"disabled":""}"><input type="checkbox" name="id_card_candidate" value="${attr(item.student_id)}" ${item.active_card_id?"disabled":""}><span><strong>${esc(item.full_name)}</strong><small>${esc(item.admission_no)} • ${esc(item.class_name)}${item.active_card_id?` • ${esc(statusText(item.active_card_status||"active"))} card ${esc(item.active_card_number)}`:""}</small></span></label>`).join("")}</div>`:emptyState("No students found","Adjust the search or selected class.");const update=()=>{byId("idCardIssueSelected").disabled=!$$('[name="id_card_candidate"]:checked',area).length};$$('[name="id_card_candidate"]',area).forEach(input=>input.onchange=update);const all=byId("idCardSelectAll");if(all)all.onchange=()=>{$$('[name="id_card_candidate"]:not(:disabled)',area).forEach(input=>input.checked=all.checked);update()};update()};
+    const load=async()=>{const year=form.elements.academic_year_id.value,classId=form.elements.class_id.value;if(!year||!classId){candidates=[];renderCandidates();return}area.innerHTML=`<div class="empty">Loading eligible students…</div>`;try{candidates=await rpc("list_id_card_candidates",{target_academic_year_id:year,target_class_id:classId,search_text:""});renderCandidates()}catch(error){candidates=[];area.innerHTML=emptyState("Students unavailable",friendlyError(error))}};form.elements.academic_year_id.onchange=load;form.elements.class_id.onchange=load;byId("idCardCandidateSearch").oninput=renderCandidates;if(form.elements.class_id.value)await load();
+    byId("idCardIssueSelected").onclick=async()=>{const ids=$$('[name="id_card_candidate"]:checked',area).map(input=>input.value);if(!ids.length)return;const values=formObject(form),button=byId("idCardIssueSelected");if(!window.confirm(`Issue ${ids.length} student ID card${ids.length===1?"":"s"}? Each card receives an immutable issuance snapshot and unique QR verification token.`))return;button.disabled=true;button.textContent="Issuing";try{const result=await rpc("issue_student_id_cards",{target_academic_year_id:values.academic_year_id,target_class_id:values.class_id,target_student_ids:ids,target_issue_date:values.issue_date,target_expires_on:values.expires_on});closeModal();state.idCardConsole=null;state.idCardYear=values.academic_year_id;state.idCardClass=values.class_id;state.idCardStatus="";toast("Student ID cards issued",`${result.created_count||0} card${Number(result.created_count||0)===1?"":"s"} created${result.skipped_count?`; ${result.skipped_count} protected duplicate${result.skipped_count===1?"":"s"} skipped`:""}.`);await renderIdCards(state.viewToken,true)}catch(error){toast("ID cards not issued",friendlyError(error),"error",9000)}finally{button.disabled=false;button.textContent="Issue selected cards"}};
+  }
+  async function revokeIdCard(card){const reason=window.prompt(`Reason for revoking ${card.card_number}:`,"")||"";if(reason.trim().length<5){if(reason)toast("Revocation reason required","Enter at least five characters.","error");return}if(!await confirmAction("Revoke student ID card","The QR verification page will immediately show this card as revoked. The historical record will be retained.","Revoke card",true))return;try{await rpc("revoke_student_id_card",{target_card_id:card.id,reason_text:reason.trim()});state.idCardConsole=null;toast("ID card revoked");await renderIdCards(state.viewToken,true)}catch(error){toast("ID card not revoked",friendlyError(error),"error",8000)}}
+  async function replaceIdCard(card){const reason=window.prompt(`Reason for replacing ${card.card_number}:`,"Lost or damaged card")||"";if(reason.trim().length<5)return;const today=new Date().toISOString().slice(0,10),settings=idCardSettingsDefaults(state.idCardConsole?.settings||{}),expires=idCardAddMonths(today,settings.validity_months);modal("Replace Student ID Card","The existing card will be preserved as Replaced and its QR will no longer verify as active. A new card number and verification token will be issued.",`<form id="idCardReplaceForm" class="form-grid"><label class="field"><span>Issue date</span><input type="date" name="issue_date" value="${today}" required></label><label class="field"><span>Expiry date</span><input type="date" name="expires_on" value="${expires}" required></label><label class="field full"><span>Reason</span><textarea name="reason" minlength="5" required>${esc(reason.trim())}</textarea></label></form>`,`<button class="button ghost" id="idCardReplaceCancel">Cancel</button><button class="button primary" id="idCardReplaceConfirm">Create replacement</button>`,`small`);byId("idCardReplaceCancel").onclick=closeModal;byId("idCardReplaceConfirm").onclick=async()=>{const values=formObject(byId("idCardReplaceForm")),button=byId("idCardReplaceConfirm");button.disabled=true;try{await rpc("replace_student_id_card",{target_card_id:card.id,reason_text:values.reason,target_issue_date:values.issue_date,target_expires_on:values.expires_on});closeModal();state.idCardConsole=null;toast("Replacement ID card issued");await renderIdCards(state.viewToken,true)}catch(error){toast("Replacement not created",friendlyError(error),"error",8000)}finally{button.disabled=false}}}
+
   function certificateVerificationUrl(token){const school=state.boot?.school||{},base=school.verification_base_url||school.website||`${location.origin}${location.pathname}`;return `${base}${base.includes("?")?"&":"?"}certificate=${encodeURIComponent(token)}`}
   function certificateStatusBadge(status){return statusBadge(status||"draft")}
   async function renderCertificates(token,force=false){
@@ -6533,7 +6663,12 @@
     try{
       if(!isConfigured()||!window.supabase?.createClient)throw new Error("Verification service unavailable");
       if(!state.client)state.client=window.supabase.createClient(CONFIG.supabaseUrl,CONFIG.supabaseAnonKey,{auth:{persistSession:false}});
-      if(verificationType==="certificate"){
+      if(verificationType==="idcard"){
+        if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(token||""))){root.innerHTML=`<section class="verify-card"><div class="verify-state invalid">ID card not verified</div><p class="help-text">The verification reference is invalid.</p></section>`;return}
+        const data=await rpc("verify_student_id_card",{token});
+        const label=data.valid?"Valid student ID card":data.status==="expired"?"ID card expired":data.status==="revoked"?"ID card revoked":data.status==="replaced"?"ID card replaced":"ID card not verified";
+        root.innerHTML=`<section class="verify-card"><div class="verify-head"><img src="${schoolDisplayLogo()}" alt=""><div><h1>${esc(data.school_name||schoolDisplayName())}</h1><p>Student ID Card Verification</p></div></div><div class="verify-state ${data.valid?"valid":"invalid"}">${esc(label)}</div>${data.found?`<div class="verify-result">${verifyField("Card number",data.card_number)}${verifyField("Student",data.student_name)}${verifyField("Admission number",data.admission_no)}${verifyField("Class",data.class_name)}${verifyField("Academic year",data.academic_year)}${verifyField("Issue date",isoDate(data.issue_date))}${verifyField("Expiry date",isoDate(data.expires_on))}${verifyField("Revision",`R${number(data.revision||1)}`)}${data.replacement_card_number?verifyField("Replacement card",data.replacement_card_number):""}</div>`:""}</section>`;
+      }else if(verificationType==="certificate"){
         const data=await rpc("verify_certificate",{token});
         root.innerHTML=`<section class="verify-card"><div class="verify-head"><img src="${schoolDisplayLogo()}" alt=""><div><h1>${esc(data.school_name||schoolDisplayName())}</h1><p>Certificate Verification</p></div></div><div class="verify-state ${data.valid?"valid":"invalid"}">${data.valid?"Authentic issued certificate":data.status==="revoked"?"Certificate revoked":data.status==="superseded"?"Certificate superseded":"Certificate not verified"}</div>${data.found?`<div class="verify-result">${verifyField("Certificate number",data.certificate_number)}${verifyField("Recipient",data.recipient_name)}${verifyField("Certificate",data.certificate_title||data.certificate_type_label)}${verifyField("Academic year",data.academic_year)}${data.class_name?verifyField("Class",data.class_name):""}${data.promoted_to?verifyField("Promoted to",data.promoted_to):""}${data.award_category?verifyField("Recognition",data.award_category):""}${verifyField("Issue date",isoDate(data.issue_date))}${data.revocation_reason?verifyField("Revocation reason",data.revocation_reason):""}${data.superseded_by?verifyField("Replacement certificate",data.superseded_by):""}</div>`:""}</section>`;
       }else if(verificationType==="transcript"){
