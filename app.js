@@ -155,16 +155,28 @@
   const can = key => Boolean(state.boot?.permissions?.[key]);
   const licenseState = () => state.boot?.license || {};
   const licenseCanWrite = () => licenseState().write_allowed !== false;
+  const LEGACY_LICENSE_FEATURE_FALLBACKS=Object.freeze({
+    id_cards:"core_records",
+    timetable:"core_records",
+    school_prospectus:"core_records"
+  });
+  const LICENSE_CAPACITY_INHERITED_FEATURES=Object.freeze(["id_cards","staff_id_cards","timetable","school_prospectus"]);
   function licenseFeatureEnabled(code) {
     if(role()==="platform_super_admin")return true;
     const flags=licenseState()?.plan?.feature_flags||{};
     if(Object.prototype.hasOwnProperty.call(flags,code))return flags[code]===true;
-    // Existing signed r10 school entitlements predate the id_cards flag. Preserve their
-    // core-records entitlement without weakening explicit future plan restrictions.
-    if(code==="id_cards")return flags.core_records===true;
+    // Explicit signed feature flags always win. Older signed school entitlements that
+    // predate a later module inherit only the documented compatible parent feature.
     if(code==="staff_id_cards")return Object.prototype.hasOwnProperty.call(flags,"id_cards")?flags.id_cards===true:flags.core_records===true;
-    if(code==="timetable")return flags.core_records===true;
-    return false;
+    const parent=LEGACY_LICENSE_FEATURE_FALLBACKS[code];
+    return parent?flags[parent]===true:false;
+  }
+  function effectiveLicenseFeatureFlags(rawFlags={}) {
+    const features={...(rawFlags&&typeof rawFlags==="object"?rawFlags:{})};
+    for(const code of LICENSE_CAPACITY_INHERITED_FEATURES){
+      if(!Object.prototype.hasOwnProperty.call(features,code))features[code]=licenseFeatureEnabled(code);
+    }
+    return features;
   }
   function dateTimeLocalValue(value) {
     if(!value)return "";
@@ -5667,7 +5679,7 @@
     if(role()!=="system_admin")throw new Error("School System Administrator access required");
     if(force||!state.schoolLicenseCapacity)state.schoolLicenseCapacity=await rpc("get_school_license_capacity_console");
     if(token!==state.viewToken)return;
-    const data=state.schoolLicenseCapacity||{},snapshot=data.snapshot||{},plan=data.plan||{},capacity=Array.isArray(data.capacity)?data.capacity:[],features={...(data.feature_flags&&typeof data.feature_flags==="object"?data.feature_flags:{})},storage=Array.isArray(data.storage_buckets)?data.storage_buckets:[],history=Array.isArray(data.verification_history)?data.verification_history:[];if(!Object.prototype.hasOwnProperty.call(features,"id_cards"))features.id_cards=licenseFeatureEnabled("id_cards");
+    const data=state.schoolLicenseCapacity||{},snapshot=data.snapshot||{},plan=data.plan||{},capacity=Array.isArray(data.capacity)?data.capacity:[],features=effectiveLicenseFeatureFlags(data.feature_flags),storage=Array.isArray(data.storage_buckets)?data.storage_buckets:[],history=Array.isArray(data.verification_history)?data.verification_history:[];
     const status=String(snapshot.computed_status||"unknown"),accessMode=String(snapshot.access_mode||"unknown"),activeFeatures=Object.entries(features).filter(([,enabled])=>enabled===true),disabledFeatures=Object.entries(features).filter(([,enabled])=>enabled!==true);
     const expiryText=snapshot.expires_at?isoDateTime(snapshot.expires_at):status==="perpetual"||String(plan.billing_cycle||"")==="perpetual"?"No expiry":"Not specified";
     const daysRemaining=snapshot.days_remaining===null||snapshot.days_remaining===undefined?"—":number(snapshot.days_remaining);
