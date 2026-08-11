@@ -4026,6 +4026,14 @@
 
     ctx.textBaseline="alphabetic";
 
+    // r19 dynamic-header contract: template artwork is never authoritative for school identity.
+    // Clear the complete template header region first, then redraw the canonical live header
+    // using the current official school logo and current school identity. This applies equally
+    // to built-in templates, uploaded PDF/DOCX templates, official PDFs and manual templates.
+    ctx.fillStyle="#ffffff";
+    ctx.fillRect(0,0,REPORT_LOGICAL_WIDTH,230);
+    drawOfficialSchoolHeader(ctx,{school,logo,subtitle:"Student Terminal Report",primary:"#123a79",studentPhotoImage:showStudentPhoto?studentPhotoImage:null});
+
     // Clear dynamic report fields. The grading-scale panel is redrawn from the
     // active or frozen academic configuration, while the How to Read panel remains.
     ctx.fillStyle="#ffffff";
@@ -4044,14 +4052,6 @@
     drawInlineReportField(ctx,{label:"Class:",value:identityClass,x:43,y:323,maxWidth:360,fontSize:19});
     drawInlineReportField(ctx,{label:"Academic Year:",value:identityYear,x:620,y:323,maxWidth:410,align:"center",fontSize:19});
     drawInlineReportField(ctx,{label:"Term:",value:identityTerm,x:1197,y:323,maxWidth:300,align:"right",fontSize:19});
-
-    if(showStudentPhoto){
-      const frameX=1075,frameY=48,frameWidth=105,frameHeight=161,padding=4;
-      ctx.fillStyle="#ffffff";ctx.fillRect(frameX,frameY,frameWidth,frameHeight);
-      ctx.strokeStyle="rgba(255,255,255,.96)";ctx.lineWidth=2;ctx.strokeRect(frameX-.5,frameY-.5,frameWidth+1,frameHeight+1);
-      ctx.save();ctx.beginPath();ctx.rect(frameX+padding,frameY+padding,frameWidth-padding*2,frameHeight-padding*2);ctx.clip();
-      drawImageCover(ctx,studentPhotoImage,frameX+padding,frameY+padding,frameWidth-padding*2,frameHeight-padding*2);ctx.restore();
-    }
 
     if(logo){ctx.save();ctx.globalAlpha=.055;drawImageContain(ctx,logo,430,bodyTop+16,390,tableBottom-bodyTop-32);ctx.restore()}
 
@@ -5226,6 +5226,49 @@
     try{const blob=await normaliseOfficialSchoolLogo(file);const url=URL.createObjectURL(blob);if(state.schoolLogoPreviewUrl)URL.revokeObjectURL(state.schoolLogoPreviewUrl);state.schoolLogoPreviewUrl=url;preview.src=url}
     catch(error){byId("schoolLogoFile").value="";preview.src=schoolDisplayLogo();toast("Logo not accepted",friendlyError(error),"error",8000)}
   }
+  async function listPublishedReportIdsForOfficialLogoRefresh(){
+    const ids=[];let page=1,total=0;const pageSize=100;
+    do{
+      const data=await rpc("list_report_cards_v6",{target_term_id:null,target_class_id:null,target_status:"published",search_text:"",archive_filter:"active",page_number:page,page_size:pageSize});
+      const rows=Array.isArray(data?.rows)?data.rows:[];total=Number(data?.total||0);
+      rows.forEach(row=>{if(row?.id&&row.status==="published"&&!row.archived)ids.push(row.id)});
+      if(!rows.length)break;
+      page+=1;
+      if(page>Math.ceil(Math.max(total,1)/pageSize)+2)throw new Error("Published report enumeration did not complete safely. Refresh the page and try again.");
+    }while(ids.length<total);
+    return [...new Set(ids)];
+  }
+
+  async function refreshPublishedReportPdfsForOfficialLogo(){
+    if(role()!=="system_admin")return toast("PDF refresh unavailable","Only the School System Administrator can refresh published report PDFs after a logo change.","error");
+    if(!licenseCanWrite())return toast("PDF refresh unavailable","The current licence is read-only. Renew or reactivate the licence before refreshing official PDFs.","error");
+    if(!can("publish_reports"))return toast("PDF refresh unavailable","Your account does not have permission to refresh official report PDFs.","error");
+    const button=byId("schoolLogoRefreshReports");if(button)button.disabled=true;
+    try{
+      const ids=await listPublishedReportIdsForOfficialLogoRefresh();
+      if(!ids.length){toast("No published PDFs to refresh","There are no active published report cards in this school.","success");return}
+      if(!await confirmAction("Refresh published report PDFs",`${ids.length} published report card${ids.length===1?"":"s"} will be regenerated with the current official school logo and canonical Student Terminal Report header. Scores, comments, report numbers, publication records and verification tokens are not changed. Existing PDFs are replaced only after each new PDF is successfully registered.`,`Refresh ${ids.length} PDF${ids.length===1?"":"s"}`))return;
+      modal("Refreshing Published Report PDFs","Applying the current official logo and canonical report header without changing academic records.",`<div class="template-information"><strong id="logoPdfRefreshHeading">Preparing published reports</strong><span id="logoPdfRefreshProgress">0 of ${ids.length} completed</span></div>`,`<button class="button ghost" type="button" disabled>Please wait</button>`,"small");
+      let updated=0,failed=0;
+      for(let index=0;index<ids.length;index++){
+        const reportId=ids[index];
+        try{
+          const editor=await rpc("get_report_editor",{target_report_id:reportId,target_enrollment_id:null,target_term_id:null});
+          await enrichReportGradingGuide(editor);
+          const publication=(editor.publications||[]).find(item=>!item.revoked_at);
+          if(!publication)throw new Error("Active publication record not found");
+          await createAndStoreOfficialPdf(editor,publication);updated+=1;
+        }catch(error){failed+=1;await reportClientError(error,{source:"official_logo_published_pdf_refresh",report_id:reportId})}
+        const progress=byId("logoPdfRefreshProgress");
+        if(progress)progress.textContent=`${index+1} of ${ids.length} completed • ${updated} refreshed${failed?` • ${failed} failed`:""}`;
+        if((index+1)%5===0)await sleep(20);
+      }
+      state.pdfUrls.clear();closeModal();
+      toast(failed?"Published PDFs refreshed with warnings":"Published PDFs refreshed",`${updated} official PDF${updated===1?"":"s"} now use the current school logo and canonical header${failed?` • ${failed} could not be regenerated and remain unchanged`:""}.`,failed?"warning":"success",10000);
+    }catch(error){closeModal();toast("Published PDFs not refreshed",friendlyError(error),"error",10000);await reportClientError(error,{source:"official_logo_published_pdf_refresh",stage:"enumerate_or_refresh"})}
+    finally{if(button)button.disabled=false}
+  }
+
   async function saveOfficialSchoolLogo(){
     if(role()!=="system_admin")return toast("Logo not changed","Only the School System Administrator can change the official school logo.","error");
     if(!licenseCanWrite())return toast("Logo not changed","The current licence is read-only. Renew or reactivate the licence before changing the official logo.","error");
@@ -5237,13 +5280,13 @@
       const {error:uploadError}=await state.client.storage.from(CONFIG.brandingBucket).upload(path,blob,{contentType:"image/png",upsert:false,cacheControl:"31536000"});if(uploadError)throw uploadError;
       const result=await rpc("set_school_logo_reference",{target_logo_url:`${CONFIG.brandingBucket}:${path}`});
       state.boot=await rpc("get_bootstrap_data");renderBrand();if(input)input.value="";if(state.schoolLogoPreviewUrl){URL.revokeObjectURL(state.schoolLogoPreviewUrl);state.schoolLogoPreviewUrl=""}const preview=byId("schoolLogoSettingsPreview");if(preview)preview.src=schoolDisplayLogo(state.boot.school);
-      toast("Official school logo saved",result?.message||"The new print-clear logo will be used automatically on newly generated official documents.","success",8000);
+      toast("Official school logo saved",result?.message||"The new print-clear logo is active for new official documents. Use Refresh published report PDFs below to update previously published report files without changing academic records.","success",10000);
     }catch(error){if(path)await state.client.storage.from(CONFIG.brandingBucket).remove([path]).catch(()=>{});toast("Logo not saved",friendlyError(error),"error",9000)}finally{button.disabled=false}
   }
   async function restorePackageSchoolLogo(){
     if(role()!=="system_admin"||!licenseCanWrite())return;
     if(!await confirmAction("Restore package logo","Use the original school logo embedded in this licensed package for future official documents? Previous uploaded logo files are retained so historical snapshots remain reproducible.","Restore logo"))return;
-    const button=byId("schoolLogoReset");button.disabled=true;try{await rpc("set_school_logo_reference",{target_logo_url:CONFIG.logoPath||"assets/school-logo.png"});state.boot=await rpc("get_bootstrap_data");renderBrand();const preview=byId("schoolLogoSettingsPreview");if(preview)preview.src=schoolDisplayLogo(state.boot.school);toast("Package logo restored","Future official documents will use the original licensed-school package logo.")}catch(error){toast("Logo not restored",friendlyError(error),"error",8000)}finally{button.disabled=false}
+    const button=byId("schoolLogoReset");button.disabled=true;try{await rpc("set_school_logo_reference",{target_logo_url:CONFIG.logoPath||"assets/school-logo.png"});state.boot=await rpc("get_bootstrap_data");renderBrand();const preview=byId("schoolLogoSettingsPreview");if(preview)preview.src=schoolDisplayLogo(state.boot.school);toast("Package logo restored","Future official documents use the original package logo. Refresh published report PDFs if previously published files should also use it.")}catch(error){toast("Logo not restored",friendlyError(error),"error",8000)}finally{button.disabled=false}
   }
 
   async function renderSettings(token) {
@@ -5276,7 +5319,7 @@
             <label class="field full"><span>Verification base URL</span><input name="verification_base_url" value="${attr(school.verification_base_url||"")}" ${!can("manage_users")?"disabled":""}></label>
             <div class="field full school-logo-settings">
               <span>Official school logo</span>
-              <div class="school-logo-settings-grid"><div class="school-logo-settings-preview"><img id="schoolLogoSettingsPreview" src="${attr(schoolDisplayLogo(school))}" alt="${attr(schoolDisplayName(school))} official logo"></div><div class="school-logo-settings-actions"><strong>Used automatically on official school documents</strong><small>Report Cards, School Prospectuses, Certificates, Student ID Cards and Staff ID Cards use this logo. Uploads are normalized to a print-clear 1024 × 1024 PNG and remain available to historical document snapshots.</small><input id="schoolLogoFile" type="file" accept="image/png,image/jpeg,image/webp" ${logoManageDisabled?"disabled":""}><div class="button-row"><button class="button secondary small" id="schoolLogoSave" type="button" ${logoManageDisabled?"disabled":""}>Upload / Change logo</button><button class="button ghost small" id="schoolLogoReset" type="button" ${logoManageDisabled?"disabled":""}>Restore package logo</button></div><small>All licensed Starter, Professional and Enterprise school systems can manage the official logo. Recommended source: square image, at least 512 × 512 pixels, maximum 5 MB.</small></div></div>
+              <div class="school-logo-settings-grid"><div class="school-logo-settings-preview"><img id="schoolLogoSettingsPreview" src="${attr(schoolDisplayLogo(school))}" alt="${attr(schoolDisplayName(school))} official logo"></div><div class="school-logo-settings-actions"><strong>Used automatically on official school documents</strong><small>Report Cards, manual report-card templates, School Prospectuses, Certificates, Student ID Cards and Staff ID Cards use this logo. Report-card template artwork cannot override the canonical school header. Uploads are normalized to a print-clear 1024 × 1024 PNG.</small><input id="schoolLogoFile" type="file" accept="image/png,image/jpeg,image/webp" ${logoManageDisabled?"disabled":""}><div class="button-row"><button class="button secondary small" id="schoolLogoSave" type="button" ${logoManageDisabled?"disabled":""}>Upload / Change logo</button><button class="button ghost small" id="schoolLogoReset" type="button" ${logoManageDisabled?"disabled":""}>Restore package logo</button><button class="button outline small" id="schoolLogoRefreshReports" type="button" ${logoManageDisabled?"disabled":""}>Refresh published report PDFs</button></div><small>All licensed Starter, Professional and Enterprise school systems can manage the official logo. Recommended source: square image, at least 512 × 512 pixels, maximum 5 MB. Refreshing published PDFs replaces only the stored PDF file after successful regeneration; scores, comments, report numbers, publication status and verification tokens remain unchanged.</small></div></div>
             </div>
             <label class="field"><span>Primary colour</span><input type="color" name="primary_colour" value="${attr(school.primary_colour||"#082d70")}" ${brandingDisabled?"disabled":""}></label>
             <label class="field"><span>Accent colour</span><input type="color" name="accent_colour" value="${attr(school.accent_colour||"#f0b51d")}" ${brandingDisabled?"disabled":""}></label>
@@ -5323,14 +5366,15 @@
         </div>
       </div>
       <section class="panel pad report-template-admin">
-        <div class="section-title"><div><h4>Report Card Templates by Class Range</h4><p>Upload one A4 portrait PDF or DOCX design for each fixed class range. The system automatically places the official student data, photograph, scores, comments, signature and verification details on the assigned design.</p></div></div>
-        <div class="template-information"><strong>Template field map</strong><span>Uploaded designs should follow the approved A4 report-card field positions. A valid template is preview-rendered before it can be assigned. When a range has no uploaded template, the approved built-in terminal-report design supplied with the system is used automatically.</span></div>
+        <div class="section-title"><div><h4>Report Card Templates by Class Range</h4><p>Upload one A4 portrait PDF or DOCX design for each fixed class range. The system automatically places the current official school header, student data, photograph, scores, comments, signature and verification details on the assigned design.</p></div></div>
+        <div class="template-information"><strong>Protected dynamic header</strong><span>Uploaded designs should follow the approved A4 report-card field positions, but any logo or school identity embedded in the template header is cleared during generation and replaced with the current official logo, school name, motto, address, contact details and Student Terminal Report subtitle. The same rule applies to manual report-card templates.</span></div>
         ${reportTemplateCardsHtml(templates,templateLoadError)}
       </section>`;
     byId("schoolSave")?.addEventListener("click",saveSchoolSettings);
     byId("schoolLogoFile")?.addEventListener("change",previewSchoolLogoSelection);
     byId("schoolLogoSave")?.addEventListener("click",saveOfficialSchoolLogo);
     byId("schoolLogoReset")?.addEventListener("click",restorePackageSchoolLogo);
+    byId("schoolLogoRefreshReports")?.addEventListener("click",refreshPublishedReportPdfsForOfficialLogo);
     byId("mfaManage").onclick=openMfaManager;
     byId("healthRefresh")?.addEventListener("click",()=>renderSettings(state.viewToken,true));
     byId("backupCreate")?.addEventListener("click",createManualBackup);
@@ -6545,7 +6589,7 @@
       throw new Error("The certificate cannot be generated until an active Principal signature is uploaded.");
     }
     if(!uploadedTemplateApplied&&logo){ctx.save();ctx.globalAlpha=.06;drawImageContain(ctx,logo,527,300,700,700);ctx.restore()}
-    if(logo)drawImageContain(ctx,logo,757,92,240,170);
+    if(logo){ctx.fillStyle="#ffffff";ctx.fillRect(745,80,264,194);ctx.save();ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality="high";drawImageContain(ctx,logo,757,92,240,170);ctx.restore()}
     ctx.textAlign="center";ctx.fillStyle=primary;ctx.font='bold 44px Georgia, "Times New Roman", serif';ctx.fillText(String(school.school_name||schoolDisplayName()).toUpperCase(),877,292);
     ctx.fillStyle="#5c6470";ctx.font='italic 24px Georgia, "Times New Roman", serif';ctx.fillText(school.motto||"",877,330);
     ctx.fillStyle=accent;ctx.fillRect(520,365,714,4);
