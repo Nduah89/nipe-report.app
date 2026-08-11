@@ -5,7 +5,7 @@ function stableScopeHash(value){
 }
 const CACHE_SCOPE_KEY=stableScopeHash(self.registration?.scope||self.location.href);
 const CACHE_FAMILY=`rce-report-card-${CACHE_SCOPE_KEY}-`;
-const CACHE_NAME=`${CACHE_FAMILY}v7-4-0-final-r1-production-stability-r15-prospectus-entitlement-navigation-r16-prospectus-one-page-report-header-r17-universal-school-logo-official-header`;
+const CACHE_NAME=`${CACHE_FAMILY}v7-4-0-final-r1-production-stability-r15-prospectus-entitlement-navigation-r16-prospectus-one-page-report-header-r17-universal-school-logo-official-header-r18-logo-entitlement-compatibility`;
 const STATIC_ASSETS=[
   "./","index.html","style.css","app.js","config.js","manifest.webmanifest",
   "assets/school-logo.png","assets/rce-master-logo.png","assets/rce-master-logo-192.png","assets/rce-master-logo-512.png","assets/rce-master-logo-maskable-512.png","assets/favicon-32.png","assets/approved-terminal-report-template.png","assets/approved-terminal-report-template.pdf",
