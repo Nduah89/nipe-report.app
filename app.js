@@ -3492,13 +3492,14 @@
     return canvas;
   }
 
+  // r23 PDF.js template security hardening: never permit eval-backed PDF parsing for uploaded templates.
   async function renderPdfTemplateBlob(blob) {
     if(!window.pdfjsLib?.getDocument)throw new Error("PDF template rendering service is unavailable. Reload the system and try again.");
     window.pdfjsLib.GlobalWorkerOptions.workerSrc="assets/vendor/pdfjs-3.11.174.worker.min.js";
     const bytes=new Uint8Array(await blob.arrayBuffer());let pdf;
-    try{pdf=await window.pdfjsLib.getDocument({data:bytes.slice()}).promise}
+    try{pdf=await window.pdfjsLib.getDocument({data:bytes.slice(),isEvalSupported:false}).promise}
     catch(workerError){
-      try{pdf=await window.pdfjsLib.getDocument({data:bytes.slice(),disableWorker:true}).promise}
+      try{pdf=await window.pdfjsLib.getDocument({data:bytes.slice(),disableWorker:true,isEvalSupported:false}).promise}
       catch(renderError){throw new Error("The report-card PDF template could not be rendered.",{cause:renderError||workerError})}
     }
     if(pdf.numPages<1)throw new Error("The PDF template has no pages.");
@@ -3576,8 +3577,8 @@
     if(!window.pdfjsLib?.getDocument)throw new Error("PDF certificate-template rendering service is unavailable. Reload and try again.");
     window.pdfjsLib.GlobalWorkerOptions.workerSrc="assets/vendor/pdfjs-3.11.174.worker.min.js";
     const bytes=new Uint8Array(await blob.arrayBuffer());let pdf;
-    try{pdf=await window.pdfjsLib.getDocument({data:bytes.slice()}).promise}
-    catch(workerError){try{pdf=await window.pdfjsLib.getDocument({data:bytes.slice(),disableWorker:true}).promise}catch(renderError){throw new Error("The certificate PDF template could not be rendered.",{cause:renderError||workerError})}}
+    try{pdf=await window.pdfjsLib.getDocument({data:bytes.slice(),isEvalSupported:false}).promise}
+    catch(workerError){try{pdf=await window.pdfjsLib.getDocument({data:bytes.slice(),disableWorker:true,isEvalSupported:false}).promise}catch(renderError){throw new Error("The certificate PDF template could not be rendered.",{cause:renderError||workerError})}}
     if(pdf.numPages<1)throw new Error("The certificate PDF template has no pages.");
     const page=await pdf.getPage(1),base=page.getViewport({scale:1});
     const scale=Math.min(1754/base.width,1240/base.height)*2;
