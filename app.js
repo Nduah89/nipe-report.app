@@ -30,6 +30,7 @@
     backupBucket: "system-backups",
     signatureBucket: "headteacher-signatures",
     staffPhotoBucket: "staff-photos",
+    brandingBucket: "school-branding",
     templateBucket: "report-card-templates",
     certificatePdfBucket: "certificate-pdfs",
     certificateTemplateBucket: "certificate-templates",
@@ -132,7 +133,7 @@
     certificateConsole:null, certificateConsoleYear:"", certificateConsoleType:"", certificateBatch:null, certificateBusy:false,
     certificateSettingsTemplates:[], certificateTemplateCanvases:new Map(),
     idCardConsole:null, idCardYear:"", idCardClass:"", idCardStatus:"", idCardBusy:false, idCardMode:"student",
-    staffIdCardConsole:null, staffIdCardType:"", staffIdCardStatus:"", staffIdCardBusy:false,
+    staffIdCardConsole:null, staffIdCardType:"", staffIdCardStatus:"", staffIdCardBusy:false, schoolLogoPreviewUrl:"",
     timetableYear:"", timetableClass:"", timetableConsole:null, teacherProfile:null, prospectusYear:"", prospectusConsole:null
   };
 
@@ -218,10 +219,26 @@
     if(CONFIG.generatedSchoolPackage&&legacyDefaultSchoolName(databaseName))return String(CONFIG.schoolName||"Your School").trim()||"Your School";
     return databaseName||String(CONFIG.schoolName||"Your School").trim()||"Your School";
   }
+  function schoolLogoStoragePath(value) {
+    const raw=String(value||"").trim(),prefix=`${CONFIG.brandingBucket}:`;
+    if(raw.startsWith(prefix))return raw.slice(prefix.length).replace(/^\/+/,"");
+    const marker=`/storage/v1/object/public/${CONFIG.brandingBucket}/`,index=raw.indexOf(marker);
+    if(index>=0){try{return decodeURIComponent(raw.slice(index+marker.length).split("?")[0])}catch(_){return raw.slice(index+marker.length).split("?")[0]}}
+    return "";
+  }
+  function schoolLogoPublicUrl(path) {
+    const clean=String(path||"").replace(/^\/+/,"");if(!clean||!state.client)return "";
+    try{return state.client.storage.from(CONFIG.brandingBucket).getPublicUrl(clean).data?.publicUrl||""}catch(_){return ""}
+  }
+  function resolveSchoolLogoReference(value) {
+    const raw=String(value||"").trim(),stored=schoolLogoStoragePath(raw);
+    if(stored)return schoolLogoPublicUrl(stored)||raw;
+    return raw;
+  }
   function schoolDisplayLogo(school=state.boot?.school||{}) {
     const databaseLogo=String(school?.logo_url||"").trim();
     if(CONFIG.generatedSchoolPackage&&legacyDefaultLogo(databaseLogo))return CONFIG.logoPath;
-    return databaseLogo||CONFIG.logoPath||"assets/school-logo.png";
+    return resolveSchoolLogoReference(databaseLogo)||CONFIG.logoPath||"assets/school-logo.png";
   }
   function shellDisplayName(school=state.boot?.school||{}){return CONFIG.masterEdition?productDisplayName():schoolDisplayName(school)}
   function shellDisplayLogo(school=state.boot?.school||{}){return CONFIG.masterEdition?productDisplayLogo():schoolDisplayLogo(school)}
@@ -586,6 +603,7 @@
     return state.storageUrlCaches.get(bucket);
   }
   function clearPrivateStorageCaches() {
+    if(state.schoolLogoPreviewUrl){URL.revokeObjectURL(state.schoolLogoPreviewUrl);state.schoolLogoPreviewUrl=""}
     state.photoUrls.clear();state.pdfUrls.clear();state.signatureUrls.clear();state.templateUrls.clear();
     for(const cache of state.storageUrlCaches.values())cache.clear();
     state.storageUrlCaches.clear();
@@ -3455,6 +3473,7 @@
     const canvas=document.createElement("canvas");canvas.width=REPORT_PRINT_WIDTH;canvas.height=REPORT_PRINT_HEIGHT;
     const ctx=canvas.getContext("2d",{alpha:false});
     if(!ctx)throw new Error("The browser could not create the print-quality report canvas.");
+    ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality="high";
     ctx.scale(REPORT_PRINT_SCALE,REPORT_PRINT_SCALE);
     return {canvas,ctx};
   }
@@ -3775,7 +3794,7 @@
 
   async function resolveReportImageAssets({reportId=null,manual=false,studentPhotoPath="",className=""}={}) {
     const school=state.boot.school||{};
-    const logo=await loadImage(school.logo_url?.startsWith("http")?school.logo_url:CONFIG.logoPath).catch(()=>null);
+    const logo=await loadImage(schoolDisplayLogo(school)).catch(()=>null);
     let signer=null,currentSigner=null;
     if(reportId){
       signer=await rpc("get_report_headteacher_signature",{target_report_id:reportId}).catch(()=>null);
@@ -3887,6 +3906,33 @@
     ctx.fillStyle="#17233b";
     setReportFont(ctx,size,"bold");ctx.fillText(labelText,start,y);
     setReportFont(ctx,size,"normal");ctx.fillText(valueText,start+labelWidth+7,y);
+  }
+
+  // r17 canonical official-school header. Report Cards and School Prospectuses use
+  // the same school identity hierarchy; only the document subtitle changes.
+  function drawOfficialSchoolHeader(ctx,{school={},logo=null,subtitle="",primary="#123a79",studentPhotoImage=null}={}) {
+    const left=38,right=1202,top=29,height=199,showStudentPhoto=Boolean(studentPhotoImage);
+    const logoX=49,logoY=48,logoW=153,logoH=160,textLeft=214,textRight=showStudentPhoto?1057:right,maxTextWidth=textRight-textLeft-18;
+    ctx.fillStyle=primary;ctx.fillRect(left,top,right-left,height);
+    if(logo){
+      ctx.fillStyle="#ffffff";ctx.fillRect(logoX,logoY,logoW,logoH);
+      ctx.save();ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality="high";drawImageContain(ctx,logo,logoX+7,logoY+7,logoW-14,logoH-14);ctx.restore();
+    }
+    ctx.fillStyle="#ffffff";
+    const centered=(value,y,preferred,minimum=11,weight="normal")=>{const line=String(value||"").trim();if(!line)return;fitReportText(ctx,line,maxTextWidth,preferred,minimum,weight);drawCenteredReportText(ctx,line,textLeft,textRight,y)};
+    centered(schoolDisplayName(school).toUpperCase(),72,36,22,"bold");
+    centered(school.motto||"Discipline, Commitment, Excellence",101,16,11,"normal");
+    centered(school.address||"",126,15.5,10.5,"normal");
+    centered(school.phone||"",150,15.5,10.5,"normal");
+    centered(school.website||school.email||"",174,15,10,"normal");
+    centered(subtitle,210,27,17,"bold");
+    if(showStudentPhoto){
+      const frameX=1075,frameY=48,frameWidth=105,frameHeight=161,padding=4;
+      ctx.fillStyle="#ffffff";ctx.fillRect(frameX,frameY,frameWidth,frameHeight);
+      ctx.strokeStyle="rgba(255,255,255,.95)";ctx.lineWidth=2;ctx.strokeRect(frameX-.5,frameY-.5,frameWidth+1,frameHeight+1);
+      ctx.save();ctx.beginPath();ctx.rect(frameX+padding,frameY+padding,frameWidth-padding*2,frameHeight-padding*2);ctx.clip();
+      drawImageCover(ctx,studentPhotoImage,frameX+padding,frameY+padding,frameWidth-padding*2,frameHeight-padding*2);ctx.restore();
+    }
   }
 
 
@@ -4092,25 +4138,9 @@
       return drawAssignedTemplateOverlay(ctx,canvas,{student,report,subjects,publication,manual,templateMeta,assets,promotion});
     }
 
-    // Header, proportioned to the approved Nipe terminal-report template.
-    ctx.fillStyle=navy;ctx.fillRect(38,29,1164,199);
-    if(logo)drawImageContain(ctx,logo,57,58,140,145);
-    const headerTextRight=showStudentPhoto?1057:1202;
-    ctx.fillStyle="#ffffff";
-    const schoolName=schoolDisplayName(school).toUpperCase();
-    const titleSize=fitReportText(ctx,schoolName,headerTextRight-225,36,24,"bold");
-    setReportFont(ctx,titleSize,"bold");drawCenteredReportText(ctx,schoolName,205,headerTextRight,79);
-    setReportFont(ctx,16,"normal");drawCenteredReportText(ctx,school.motto||"Discipline, Commitment, Excellence",205,headerTextRight,108);
-    drawCenteredReportText(ctx,school.address||"Santeo, Cedar Estate",205,headerTextRight,132);
-    drawCenteredReportText(ctx,school.phone||"(+233) 559671336 / (+233) 241397124",205,headerTextRight,156);
-    setReportFont(ctx,27,"bold");drawCenteredReportText(ctx,school.report_title||"Student Terminal Report",205,headerTextRight,209);
-    if(showStudentPhoto){
-      const frameX=1075,frameY=48,frameWidth=105,frameHeight=161,padding=4;
-      ctx.fillStyle="#ffffff";ctx.fillRect(frameX,frameY,frameWidth,frameHeight);
-      ctx.strokeStyle="rgba(255,255,255,.95)";ctx.lineWidth=2;ctx.strokeRect(frameX-.5,frameY-.5,frameWidth+1,frameHeight+1);
-      ctx.save();ctx.beginPath();ctx.rect(frameX+padding,frameY+padding,frameWidth-padding*2,frameHeight-padding*2);ctx.clip();
-      drawImageCover(ctx,studentPhotoImage,frameX+padding,frameY+padding,frameWidth-padding*2,frameHeight-padding*2);ctx.restore();
-    }
+    // r17 official header parity: same school identity block as Prospectus,
+    // with a larger white-backed high-resolution logo and report-specific subtitle.
+    drawOfficialSchoolHeader(ctx,{school,logo,subtitle:"Student Terminal Report",primary:navy,studentPhotoImage:showStudentPhoto?studentPhotoImage:null});
 
     const identityName=manual?"....................................................................":student.full_name||"";
     const identityAdmission=manual?"NIS.......":student.admission_no||"";
@@ -5176,10 +5206,51 @@
     finally{button.disabled=false}
   }
 
+  const SCHOOL_LOGO_MAX_BYTES=5*1024*1024,SCHOOL_LOGO_OUTPUT_SIZE=1024,SCHOOL_LOGO_ALLOWED_TYPES=Object.freeze(["image/png","image/jpeg","image/webp"]);
+  async function normaliseOfficialSchoolLogo(file){
+    if(!file)throw new Error("Select a school logo first.");
+    if(!SCHOOL_LOGO_ALLOWED_TYPES.includes(String(file.type||"").toLowerCase()))throw new Error("School logo must be a PNG, JPEG, or WebP image.");
+    if(Number(file.size||0)<=0||file.size>SCHOOL_LOGO_MAX_BYTES)throw new Error("School logo must be 5 MB or smaller.");
+    const objectUrl=URL.createObjectURL(file);let image;
+    try{image=await loadImage(objectUrl)}finally{URL.revokeObjectURL(objectUrl)}
+    if(!image?.width||!image?.height)throw new Error("The selected school logo could not be decoded.");
+    if(image.width<512||image.height<512)throw new Error("For clear report printing, upload a logo of at least 512 × 512 pixels.");
+    const canvas=document.createElement("canvas");canvas.width=SCHOOL_LOGO_OUTPUT_SIZE;canvas.height=SCHOOL_LOGO_OUTPUT_SIZE;const ctx=canvas.getContext("2d");if(!ctx)throw new Error("The browser could not prepare the school logo.");
+    ctx.clearRect(0,0,canvas.width,canvas.height);ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality="high";drawImageContain(ctx,image,24,24,canvas.width-48,canvas.height-48);
+    const blob=await new Promise((resolve,reject)=>canvas.toBlob(value=>value?resolve(value):reject(new Error("The school logo could not be encoded.")),"image/png"));canvas.width=1;canvas.height=1;
+    if(blob.size>SCHOOL_LOGO_MAX_BYTES)throw new Error("The normalized school logo exceeds 5 MB. Use a simpler PNG, JPEG, or WebP source image.");
+    return blob;
+  }
+  async function previewSchoolLogoSelection(){
+    const file=byId("schoolLogoFile")?.files?.[0],preview=byId("schoolLogoSettingsPreview");if(!file||!preview)return;
+    try{const blob=await normaliseOfficialSchoolLogo(file);const url=URL.createObjectURL(blob);if(state.schoolLogoPreviewUrl)URL.revokeObjectURL(state.schoolLogoPreviewUrl);state.schoolLogoPreviewUrl=url;preview.src=url}
+    catch(error){byId("schoolLogoFile").value="";preview.src=schoolDisplayLogo();toast("Logo not accepted",friendlyError(error),"error",8000)}
+  }
+  async function saveOfficialSchoolLogo(){
+    if(role()!=="system_admin")return toast("Logo not changed","Only the School System Administrator can change the official school logo.","error");
+    if(!licenseCanWrite())return toast("Logo not changed","The current licence is read-only. Renew or reactivate the licence before changing the official logo.","error");
+    const input=byId("schoolLogoFile"),file=input?.files?.[0],button=byId("schoolLogoSave");if(!file)return toast("Select a logo","Choose a PNG, JPEG, or WebP school logo first.","warning");button.disabled=true;
+    let path="";
+    try{
+      const blob=await normaliseOfficialSchoolLogo(file),schoolId=String(state.boot?.school?.id||"").trim();if(!schoolId)throw new Error("School identity is unavailable. Refresh Settings and try again.");
+      path=`official/${schoolId}/logo-${Date.now()}-${crypto.randomUUID().slice(0,8)}.png`;
+      const {error:uploadError}=await state.client.storage.from(CONFIG.brandingBucket).upload(path,blob,{contentType:"image/png",upsert:false,cacheControl:"31536000"});if(uploadError)throw uploadError;
+      const result=await rpc("set_school_logo_reference",{target_logo_url:`${CONFIG.brandingBucket}:${path}`});
+      state.boot=await rpc("get_bootstrap_data");renderBrand();if(input)input.value="";if(state.schoolLogoPreviewUrl){URL.revokeObjectURL(state.schoolLogoPreviewUrl);state.schoolLogoPreviewUrl=""}const preview=byId("schoolLogoSettingsPreview");if(preview)preview.src=schoolDisplayLogo(state.boot.school);
+      toast("Official school logo saved",result?.message||"The new print-clear logo will be used automatically on newly generated official documents.","success",8000);
+    }catch(error){if(path)await state.client.storage.from(CONFIG.brandingBucket).remove([path]).catch(()=>{});toast("Logo not saved",friendlyError(error),"error",9000)}finally{button.disabled=false}
+  }
+  async function restorePackageSchoolLogo(){
+    if(role()!=="system_admin"||!licenseCanWrite())return;
+    if(!await confirmAction("Restore package logo","Use the original school logo embedded in this licensed package for future official documents? Previous uploaded logo files are retained so historical snapshots remain reproducible.","Restore logo"))return;
+    const button=byId("schoolLogoReset");button.disabled=true;try{await rpc("set_school_logo_reference",{target_logo_url:CONFIG.logoPath||"assets/school-logo.png"});state.boot=await rpc("get_bootstrap_data");renderBrand();const preview=byId("schoolLogoSettingsPreview");if(preview)preview.src=schoolDisplayLogo(state.boot.school);toast("Package logo restored","Future official documents will use the original licensed-school package logo.")}catch(error){toast("Logo not restored",friendlyError(error),"error",8000)}finally{button.disabled=false}
+  }
+
   async function renderSettings(token) {
     const school=state.boot.school||{};
     const brandingEnabled=licenseFeatureEnabled("custom_branding");
     const brandingDisabled=!can("manage_users")||!brandingEnabled;
+    const logoManageDisabled=role()!=="system_admin"||!licenseCanWrite();
     let health=null,readiness=null,backupData=null,templates=[],templateLoadError="";
     try{templates=await loadReportCardTemplates(true)}catch(error){templateLoadError=friendlyError(error)}
     try{health=await rpc("system_health")}catch(_){}
@@ -5203,11 +5274,15 @@
             <label class="field"><span>User email domain</span><input name="user_email_domain" value="${attr(schoolEmailDomain(school))}" placeholder="school.edu.gh" ${!can("manage_users")?"disabled":""}><small>Used for automatically generated user account email addresses.</small></label>
             <label class="field"><span>Time zone</span><input name="timezone" value="${attr(school.timezone||"Africa/Accra")}" ${!can("manage_users")?"disabled":""}></label>
             <label class="field full"><span>Verification base URL</span><input name="verification_base_url" value="${attr(school.verification_base_url||"")}" ${!can("manage_users")?"disabled":""}></label>
+            <div class="field full school-logo-settings">
+              <span>Official school logo</span>
+              <div class="school-logo-settings-grid"><div class="school-logo-settings-preview"><img id="schoolLogoSettingsPreview" src="${attr(schoolDisplayLogo(school))}" alt="${attr(schoolDisplayName(school))} official logo"></div><div class="school-logo-settings-actions"><strong>Used automatically on official school documents</strong><small>Report Cards, School Prospectuses, Certificates, Student ID Cards and Staff ID Cards use this logo. Uploads are normalized to a print-clear 1024 × 1024 PNG and remain available to historical document snapshots.</small><input id="schoolLogoFile" type="file" accept="image/png,image/jpeg,image/webp" ${logoManageDisabled?"disabled":""}><div class="button-row"><button class="button secondary small" id="schoolLogoSave" type="button" ${logoManageDisabled?"disabled":""}>Upload / Change logo</button><button class="button ghost small" id="schoolLogoReset" type="button" ${logoManageDisabled?"disabled":""}>Restore package logo</button></div><small>All licensed Starter, Professional and Enterprise school systems can manage the official logo. Recommended source: square image, at least 512 × 512 pixels, maximum 5 MB.</small></div></div>
+            </div>
             <label class="field"><span>Primary colour</span><input type="color" name="primary_colour" value="${attr(school.primary_colour||"#082d70")}" ${brandingDisabled?"disabled":""}></label>
             <label class="field"><span>Accent colour</span><input type="color" name="accent_colour" value="${attr(school.accent_colour||"#f0b51d")}" ${brandingDisabled?"disabled":""}></label>
             <label class="field"><span>Report body font</span><select name="report_body_font" ${brandingDisabled?"disabled":""}>${reportFontOptionsHtml(school.report_body_font||"Times New Roman")}</select></label>
             <label class="field"><span>Report body font size</span><input type="number" name="report_body_font_size" min="8" max="16" step="0.5" value="${attr(school.report_body_font_size??11)}" ${brandingDisabled?"disabled":""}><small>Applied to generated report data and embedded in the downloaded PDF. Default: 11 pt.</small></label>
-            ${can("manage_users")&&!brandingEnabled?`<div class="full"><p class="help-text">Colours, logo, and report typography are locked because Custom Branding is not included in the current licence. School identity and contact details remain editable.</p></div>`:""}
+            ${can("manage_users")&&!brandingEnabled?`<div class="full"><p class="help-text">Colours and report typography are locked because Custom Branding is not included in the current licence. The official school logo remains available on every licensed plan. School identity and contact details remain editable.</p></div>`:""}
             ${can("manage_users")?`<div class="full"><button class="button primary" id="schoolSave" type="button">Save identity and report appearance</button></div>`:""}
           </form>
         </section>
@@ -5253,6 +5328,9 @@
         ${reportTemplateCardsHtml(templates,templateLoadError)}
       </section>`;
     byId("schoolSave")?.addEventListener("click",saveSchoolSettings);
+    byId("schoolLogoFile")?.addEventListener("change",previewSchoolLogoSelection);
+    byId("schoolLogoSave")?.addEventListener("click",saveOfficialSchoolLogo);
+    byId("schoolLogoReset")?.addEventListener("click",restorePackageSchoolLogo);
     byId("mfaManage").onclick=openMfaManager;
     byId("healthRefresh")?.addEventListener("click",()=>renderSettings(state.viewToken,true));
     byId("backupCreate")?.addEventListener("click",createManualBackup);
@@ -5270,7 +5348,7 @@
         if(!Number.isFinite(reportFontSize)||reportFontSize<8||reportFontSize>16)throw new Error("Report body font size must be between 8 and 16 points.");
         values.report_body_font_size=Math.round(reportFontSize*2)/2;
       }else{
-        delete values.primary_colour;delete values.accent_colour;delete values.report_body_font;delete values.report_body_font_size;delete values.logo_url;
+        delete values.primary_colour;delete values.accent_colour;delete values.report_body_font;delete values.report_body_font_size;
       }
       values.user_email_domain=String(values.user_email_domain||"").trim().toLowerCase();
       if(!/^(?:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(values.user_email_domain))throw new Error("Enter a valid user email domain, for example school.edu.gh.");
@@ -5729,7 +5807,7 @@
   // immutable publication revisions, professional A4 PDF, and archive lifecycle.
   // ---------------------------------------------------------------------------
   const PROSPECTUS_RANGES=Object.freeze([
-    {value:"early_years",label:"Creche to Nursery"},
+    {value:"early_years",label:"Creche to Kindergarten"},
     {value:"basic_1_6",label:"Basic 1 to Basic 6"},
     {value:"basic_7_9",label:"Basic 7 to Basic 9"}
   ]);
@@ -5823,7 +5901,7 @@
 
   function prospectusPreviewHtml(snapshot){
     const p=prospectusRecord(snapshot),currency=prospectusCurrency(snapshot),school=snapshot.school||{},sections=snapshot.sections||[],grand=sections.reduce((sum,section)=>sum+prospectusSubtotal(section),0),status=String(p.status||"draft").toUpperCase(),revision=p.revision_no?`Revision R${number(p.revision_no)}`:"Not yet published";
-    return `<article class="prospectus-preview-document prospectus-preview-r16"><header><div class="prospectus-preview-brand"><img src="${attr(schoolDisplayLogo(school))}" alt=""><div><h2>${esc(school.school_name||schoolDisplayName(school))}</h2>${school.motto?`<p>${esc(school.motto)}</p>`:""}${school.address?`<p>${esc(school.address)}</p>`:""}${school.phone?`<p>${esc(school.phone)}</p>`:""}<h1>${esc(p.title||"School Prospectus")}</h1></div></div></header><div class="prospectus-preview-meta"><span><b>Academic Year</b>${esc(snapshot.academic_year?.name||"")}</span><span><b>Class Range</b>${esc(prospectusRangeLabel(p.class_range))}</span><span><b>Status</b>${esc(`${status} | ${revision}`)}</span><span><b>Effective</b>${esc(p.effective_date?isoDate(p.effective_date):"Not set")}</span></div>${p.general_notes?`<div class="prospectus-notice"><strong>General Note</strong><span>${esc(p.general_notes)}</span></div>`:""}${sections.map(section=>`<section><h3>${esc(section.title)}</h3>${section.instructions?`<p class="section-note">${esc(section.instructions)}</p>`:""}<div class="table-wrap"><table><thead><tr><th>Description</th><th>Amount / Quantity</th><th>Basis</th></tr></thead><tbody>${(section.items||[]).map(item=>{const detail=prospectusPdfItemDetail(item);return `<tr><td><strong>${esc(item.item_name)}</strong>${detail?`<br><small>${esc(detail)}</small>`:""}</td><td>${esc(prospectusAmountLabel(item,currency))}</td><td>${esc(prospectusPdfBasisText(item))}</td></tr>`}).join("")||`<tr><td colspan="3">No items configured</td></tr>`}</tbody></table></div>${prospectusSubtotal(section)>0?`<div class="prospectus-preview-subtotal"><span>Calculated subtotal</span><strong>${esc(prospectusMoney(prospectusSubtotal(section),currency))}</strong></div>`:""}</section>`).join("")}<footer><div><strong>Calculated payable total: ${esc(prospectusMoney(grand,currency))}</strong>${prospectusHasUncalculatedRates(snapshot)?`<small>Recurring rates without configured calculation units are shown separately and are not included in this total.</small>`:""}</div><div><span>Single-page A4 output</span><span>Page 1 of 1 per class range</span></div></footer></article>`
+    return `<article class="prospectus-preview-document prospectus-preview-r16"><header><div class="prospectus-preview-brand"><img src="${attr(schoolDisplayLogo(school))}" alt=""><div><h2>${esc(school.school_name||schoolDisplayName(school))}</h2>${school.motto?`<p>${esc(school.motto)}</p>`:""}${school.address?`<p>${esc(school.address)}</p>`:""}${school.phone?`<p>${esc(school.phone)}</p>`:""}${school.website||school.email?`<p>${esc(school.website||school.email)}</p>`:""}<h1>School Prospectus</h1></div></div></header><div class="prospectus-preview-meta"><span><b>Academic Year</b>${esc(snapshot.academic_year?.name||"")}</span><span><b>Class Range</b>${esc(prospectusRangeLabel(p.class_range))}</span><span><b>Status</b>${esc(`${status} | ${revision}`)}</span><span><b>Effective</b>${esc(p.effective_date?isoDate(p.effective_date):"Not set")}</span></div>${p.general_notes?`<div class="prospectus-notice"><strong>General Note</strong><span>${esc(p.general_notes)}</span></div>`:""}${sections.map(section=>`<section><h3>${esc(section.title)}</h3>${section.instructions?`<p class="section-note">${esc(section.instructions)}</p>`:""}<div class="table-wrap"><table><thead><tr><th>Description</th><th>Amount / Quantity</th><th>Basis</th></tr></thead><tbody>${(section.items||[]).map(item=>{const detail=prospectusPdfItemDetail(item);return `<tr><td><strong>${esc(item.item_name)}</strong>${detail?`<br><small>${esc(detail)}</small>`:""}</td><td>${esc(prospectusAmountLabel(item,currency))}</td><td>${esc(prospectusPdfBasisText(item))}</td></tr>`}).join("")||`<tr><td colspan="3">No items configured</td></tr>`}</tbody></table></div>${prospectusSubtotal(section)>0?`<div class="prospectus-preview-subtotal"><span>Calculated subtotal</span><strong>${esc(prospectusMoney(prospectusSubtotal(section),currency))}</strong></div>`:""}</section>`).join("")}<footer><div><strong>Calculated payable total: ${esc(prospectusMoney(grand,currency))}</strong>${prospectusHasUncalculatedRates(snapshot)?`<small>Recurring rates without configured calculation units are shown separately and are not included in this total.</small>`:""}</div><div><span>Single-page A4 output</span><span>Page 1 of 1 per class range</span></div></footer></article>`
   }
   function previewSchoolProspectus(snapshot){if(!snapshot)return;modal(`${prospectusRangeLabel(prospectusRecord(snapshot).class_range)} Prospectus Preview`,`Review the document exactly as organized before downloading the PDF.`,prospectusPreviewHtml(snapshot),`<button class="button ghost" id="prospectusPreviewClose">Close</button><button class="button primary" id="prospectusPreviewPdf">Download PDF</button>`,`wide`);byId("prospectusPreviewClose").onclick=closeModal;byId("prospectusPreviewPdf").onclick=()=>downloadSchoolProspectusPdf(snapshot)}
 
@@ -5944,15 +6022,8 @@
     const W=REPORT_LOGICAL_WIDTH,H=REPORT_LOGICAL_HEIGHT,left=38,right=1202,bodyWidth=right-left,footerTop=1692;let logo=null;try{logo=await loadImage(schoolDisplayLogo(school))}catch(_){}
     ctx.fillStyle="#ffffff";ctx.fillRect(0,0,W,H);
 
-    // Match the official report-card header structure: logo, school name, motto, address, phone, document title.
-    ctx.fillStyle=primary;ctx.fillRect(38,29,1164,199);
-    if(logo)drawImageContain(ctx,logo,57,58,140,145);
-    ctx.fillStyle="#ffffff";const schoolName=schoolDisplayName(school).toUpperCase(),title=String(p.title||"School Prospectus");
-    const schoolTitleSize=fitReportText(ctx,schoolName,977,36,22,"bold");setReportFont(ctx,schoolTitleSize,"bold");drawCenteredReportText(ctx,schoolName,205,1202,79);
-    setReportFont(ctx,16,"normal");drawCenteredReportText(ctx,school.motto||"Discipline, Commitment, Excellence",205,1202,108);
-    drawCenteredReportText(ctx,school.address||"",205,1202,132);
-    drawCenteredReportText(ctx,school.phone||"",205,1202,156);
-    const documentTitleSize=fitReportText(ctx,title,920,27,18,"bold");setReportFont(ctx,documentTitleSize,"bold");drawCenteredReportText(ctx,title,205,1202,209);
+    // r17 uses the exact same official school identity header as the terminal report.
+    drawOfficialSchoolHeader(ctx,{school,logo,subtitle:"School Prospectus",primary});
     ctx.fillStyle=accent;ctx.fillRect(38,228,1164,5);
 
     const status=String(p.status||"draft").toUpperCase(),revision=p.revision_no?`Revision R${number(p.revision_no)}`:"Not yet published",effective=p.effective_date?isoDate(p.effective_date):"Not set";
@@ -6142,7 +6213,7 @@
   }
   async function idCardAssets(card){
     const snap=card?.snapshot||{},student=snap.student||{},school=snap.school||{},principal=snap.principal||{};let logo=null,photo=null,signature=null;
-    try{logo=await loadImage(String(school.logo_url||schoolDisplayLogo()))}catch(_){try{logo=await loadImage(schoolDisplayLogo())}catch(__){}}
+    try{logo=await loadImage(schoolDisplayLogo(school))}catch(_){try{logo=await loadImage(schoolDisplayLogo())}catch(__){}}
     if(student.photo_url){try{photo=await loadPrivateImageAsset(CONFIG.photoBucket,student.photo_url,"Student ID photograph")}catch(error){await reportClientError(error,{source:"id_card_photo",card_id:card?.id||""}).catch(()=>{})}}
     if(principal.signature_path){try{signature=await loadPrivateImageAsset(CONFIG.signatureBucket,principal.signature_path,"Principal ID-card signature")}catch(error){await reportClientError(error,{source:"id_card_principal_signature",card_id:card?.id||""}).catch(()=>{})}}
     return {logo,photo,signature};
@@ -6223,7 +6294,7 @@
   function deleteStudentIdCardPermanently(card){if(!card)return;modal("Delete Student ID Card Permanently","Only revoked or replaced cards can be removed. The issued-card record is deleted, while a minimal immutable tombstone remains so the old QR can never become valid again.",`<div class="destructive-confirmation"><label class="field"><span>Deletion reason</span><textarea id="studentIdDeleteReason" minlength="5" required placeholder="Explain why this revoked/replaced card must be removed"></textarea></label><label class="field"><span>Type DELETE to confirm</span><input id="studentIdDeleteText" autocomplete="off"></label><p class="help-text">Card ${esc(card.card_number)} • ${esc(statusText(card.status))}. This action cannot be undone.</p></div>`,`<button class="button ghost" id="studentIdDeleteCancel">Cancel</button><button class="button danger" id="studentIdDeleteConfirm">Delete permanently</button>`,`small`);byId("studentIdDeleteCancel").onclick=closeModal;byId("studentIdDeleteConfirm").onclick=async()=>{const reason=byId("studentIdDeleteReason").value.trim(),confirmation=byId("studentIdDeleteText").value.trim();if(reason.length<5||confirmation!=="DELETE"){toast("ID card not deleted","Enter a reason of at least five characters and type DELETE exactly.","error");return}const button=byId("studentIdDeleteConfirm");button.disabled=true;try{await rpc("delete_student_id_card_permanently",{target_card_id:card.id,reason_text:reason,confirmation_text:confirmation});closeModal();state.idCardConsole=null;toast("ID card permanently removed","A non-sensitive deletion tombstone was retained for QR invalidation and audit continuity.");await renderIdCards(state.viewToken,true)}catch(error){toast("ID card not deleted",friendlyError(error),"error",8500)}finally{button.disabled=false}}}
 
   function staffIdCardVerificationUrl(token){const school=state.boot?.school||{},base=school.verification_base_url||`${location.origin}${location.pathname}`;return `${base}${base.includes("?")?"&":"?"}staffcard=${encodeURIComponent(token)}`}
-  async function staffIdCardAssets(card){const snap=card?.snapshot||{},staff=snap.staff||{},school=snap.school||{},principal=snap.principal||{};let logo=null,photo=null,signature=null;try{logo=await loadImage(String(school.logo_url||schoolDisplayLogo()))}catch(_){try{logo=await loadImage(schoolDisplayLogo())}catch(__){}}if(staff.photo_url){try{photo=await loadPrivateImageAsset(CONFIG.staffPhotoBucket,staff.photo_url,"Staff ID photograph")}catch(error){await reportClientError(error,{source:"staff_id_photo",card_id:card?.id||""})}}if(principal.signature_path){try{signature=await loadPrivateImageAsset(CONFIG.signatureBucket,principal.signature_path,"Principal ID-card signature")}catch(error){await reportClientError(error,{source:"staff_id_principal_signature",card_id:card?.id||""})}}return{logo,photo,signature}}
+  async function staffIdCardAssets(card){const snap=card?.snapshot||{},staff=snap.staff||{},school=snap.school||{},principal=snap.principal||{};let logo=null,photo=null,signature=null;try{logo=await loadImage(schoolDisplayLogo(school))}catch(_){try{logo=await loadImage(schoolDisplayLogo())}catch(__){}}if(staff.photo_url){try{photo=await loadPrivateImageAsset(CONFIG.staffPhotoBucket,staff.photo_url,"Staff ID photograph")}catch(error){await reportClientError(error,{source:"staff_id_photo",card_id:card?.id||""})}}if(principal.signature_path){try{signature=await loadPrivateImageAsset(CONFIG.signatureBucket,principal.signature_path,"Principal ID-card signature")}catch(error){await reportClientError(error,{source:"staff_id_principal_signature",card_id:card?.id||""})}}return{logo,photo,signature}}
   async function drawStaffIdCard(card,side="front"){
     const snap=card?.snapshot||{},staff=snap.staff||{},academic=snap.academic||{},school=snap.school||{},principal=snap.principal||{},settings=idCardSettingsDefaults(snap.template||{}),canvas=document.createElement("canvas");canvas.width=ID_CARD_WIDTH;canvas.height=ID_CARD_HEIGHT;const ctx=canvas.getContext("2d"),primary=idCardSafeColour(school.primary_colour,"#0a2f73"),accent=idCardSafeColour(school.accent_colour,"#f1b51c"),verification=staffIdCardVerificationUrl(card.verification_token||snap.card?.verification_token||"");const {logo,photo,signature}=await staffIdCardAssets(card);ctx.fillStyle="#fff";ctx.fillRect(0,0,canvas.width,canvas.height);if(settings.template_code==="minimal"){ctx.fillStyle=primary;ctx.fillRect(0,0,22,canvas.height);ctx.fillStyle=accent;ctx.fillRect(22,0,8,canvas.height)}else if(settings.template_code==="classic"){ctx.strokeStyle=primary;ctx.lineWidth=16;ctx.strokeRect(8,8,canvas.width-16,canvas.height-16);ctx.fillStyle=accent;ctx.fillRect(16,104,canvas.width-32,8)}else{ctx.fillStyle=primary;ctx.fillRect(0,0,canvas.width,122);ctx.fillStyle=accent;ctx.fillRect(0,122,canvas.width,13);ctx.fillRect(0,canvas.height-18,canvas.width,18)}
     if(side==="front"){if(logo){ctx.fillStyle="#fff";ctx.fillRect(42,22,82,82);drawImageContain(ctx,logo,46,26,74,74)}ctx.fillStyle=settings.template_code==="modern"?"#fff":primary;fitIdCardText(ctx,school.school_name||schoolDisplayName(),650,34,22,800);ctx.fillText(String(school.school_name||schoolDisplayName()).toUpperCase(),145,62,650);ctx.font="700 22px Arial";ctx.fillStyle=settings.template_code==="modern"?accent:primary;ctx.fillText(settings.staff_card_title.toUpperCase(),145,96);const px=54,py=176,pw=242,ph=316;ctx.fillStyle="#eef3fa";ctx.fillRect(px,py,pw,ph);ctx.strokeStyle="#b9c6d8";ctx.lineWidth=3;ctx.strokeRect(px,py,pw,ph);if(photo)drawImageCover(ctx,photo,px+5,py+5,pw-10,ph-10);else{ctx.fillStyle=primary;ctx.font="800 74px Arial";ctx.textAlign="center";ctx.fillText(idCardInitials(staff.full_name),px+pw/2,py+ph/2+26);ctx.textAlign="left"}let y=196;const field=(label,value)=>{ctx.fillStyle="#718096";ctx.font="700 14px Arial";ctx.fillText(label,330,y);y+=25;ctx.fillStyle="#132443";fitIdCardText(ctx,value||"—",420,23,16,750);ctx.fillText(String(value||"—"),330,y,420);y+=37};ctx.fillStyle="#64748b";ctx.font="700 15px Arial";ctx.fillText("STAFF NAME",330,y);y+=38;ctx.fillStyle="#10213c";fitIdCardText(ctx,staff.full_name||"Staff",445,34,21,850);ctx.fillText(staff.full_name||"Staff",330,y,445);y+=42;field("STAFF NUMBER",staff.staff_no);field("ROLE",staff.role);if(staff.emis_code)field("EMIS CODE",staff.emis_code);else if(staff.qualification)field("QUALIFICATION",staff.qualification);field("ACADEMIC YEAR",academic.academic_year_name);const qr=await idCardQrCanvas(verification,230);ctx.fillStyle="#fff";ctx.fillRect(802,350,174,174);ctx.drawImage(qr,811,359,156,156);ctx.fillStyle="#64748b";ctx.font="700 13px Arial";ctx.textAlign="center";ctx.fillText("SCAN TO VERIFY",889,536);ctx.textAlign="left";ctx.fillStyle="#10213c";ctx.font="800 18px monospace";ctx.fillText(card.card_number||snap.card?.card_number||"",54,542,720);ctx.font="600 15px Arial";ctx.fillStyle="#56647a";ctx.fillText(`Issued ${isoDate(card.issue_date||snap.card?.issue_date)}  •  Expires ${isoDate(card.expires_on||snap.card?.expires_on)}`,54,579,720)}else{ctx.fillStyle=primary;ctx.fillRect(0,0,canvas.width,98);ctx.fillStyle="#fff";ctx.font="850 28px Arial";ctx.textAlign="center";ctx.fillText(String(school.school_name||schoolDisplayName()).toUpperCase(),canvas.width/2,59,850);ctx.textAlign="left";const qr=await idCardQrCanvas(verification,300);ctx.fillStyle="#fff";ctx.fillRect(62,150,260,260);ctx.strokeStyle="#d9e0ea";ctx.strokeRect(62,150,260,260);ctx.drawImage(qr,76,164,232,232);ctx.fillStyle="#132443";ctx.font="850 22px Arial";ctx.fillText("VERIFY THIS STAFF CARD",364,170);ctx.fillStyle="#56647a";ctx.font="500 17px Arial";drawWrapped(ctx,"Scan the QR code to verify whether this issued staff ID card is valid, expired, revoked, replaced, or permanently removed.",364,205,570,25,4);let cy=300;const contact=[];if(settings.show_school_address&&school.address)contact.push(["Address",school.address]);if(settings.show_school_phone&&school.phone)contact.push(["Phone",school.phone]);if(settings.show_school_email&&school.email)contact.push(["Email",school.email]);if(school.website)contact.push(["Website",school.website]);for(const [label,value] of contact.slice(0,4)){ctx.fillStyle="#718096";ctx.font="700 14px Arial";ctx.fillText(`${label.toUpperCase()}:`,364,cy);ctx.fillStyle="#132443";ctx.font="600 16px Arial";ctx.fillText(String(value),485,cy,470);cy+=27}if(settings.show_principal_signature&&(signature||principal.full_name)){const left=640,right=936,lineY=465;if(signature)drawSignatureOnLine(ctx,signature,left,right,lineY,72,"#64748b",1.4);else{ctx.strokeStyle="#64748b";ctx.beginPath();ctx.moveTo(left,lineY);ctx.lineTo(right,lineY);ctx.stroke()}ctx.textAlign="center";ctx.fillStyle="#10213c";ctx.font="700 15px Arial";if(settings.show_principal_name&&principal.full_name)ctx.fillText(String(principal.full_name),788,489,300);if(settings.show_principal_title){ctx.fillStyle="#64748b";ctx.font="600 13px Arial";ctx.fillText("Principal's Signature",788,510)}ctx.textAlign="left"}ctx.fillStyle="#334155";ctx.font="500 15px Arial";drawWrapped(ctx,settings.back_message,62,492,540,22,3);ctx.fillStyle="#64748b";ctx.font="700 13px Arial";ctx.fillText("CARD NUMBER",62,570);ctx.fillStyle="#10213c";ctx.font="800 18px monospace";ctx.fillText(card.card_number||snap.card?.card_number||"",180,570,600);ctx.fillStyle=accent;ctx.fillRect(0,canvas.height-18,canvas.width,18)}return canvas;
