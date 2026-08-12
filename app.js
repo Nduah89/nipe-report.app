@@ -331,6 +331,14 @@
     });
   }
 
+  // r25 empty-master UUID null guard contract:
+  // Optional UUID RPC parameters must use SQL NULL when the UI has no selected record.
+  // An empty string is not a UUID and PostgREST correctly rejects it before the RPC runs.
+  function nullableId(value) {
+    const text=String(value??"").trim();
+    return text||null;
+  }
+
   async function rpc(name,args={}) {
     const {data,error}=await state.client.rpc(name,args);
     if(error) {
@@ -5176,7 +5184,7 @@
       <div class="button-row"><button class="button primary" id="fullSchoolBackupCreate" type="button">Create full encrypted backup</button></div>${backupHistoryHtml(backupData?.backups||[])}</section>
       <section class="panel pad"><div class="section-title"><div><h4>Restore a Downloaded School Backup</h4><p>Upload a ZIP package previously downloaded from this school. The server verifies encryption, checksums, school identity and schema compatibility before changing data.</p></div></div>
       <div class="template-information"><strong>Required sequence</strong><span>Install and license the compatible fresh system, sign in as System Administrator with MFA, create a recovery point, upload the backup, type RESTORE SCHOOL, then keep the browser open until final verification succeeds.</span></div>
-      <form id="schoolRestoreForm" class="form-grid compact"><label class="field full"><span>Encrypted school backup ZIP</span><input type="file" name="backup_file" accept=".zip,application/zip" required></label><label class="field full"><span>Typed confirmation</span><input name="confirmation" autocomplete="off" placeholder="RESTORE SCHOOL" required></label><label class="field full"><span>Reason</span><textarea name="reason" minlength="10" placeholder="State why this full restoration is required" required></textarea></label><div class="full button-row"><button class="button danger" id="schoolRestoreStart" type="button">Validate and restore school data</button></div></form>
+      <form id="schoolRestoreForm" class="form-grid compact"><label class="field full"><span>Encrypted school backup ZIP</span><input type="file" name="backup_file" accept=".zip,application/zip,application/x-zip-compressed,application/x-zip,multipart/x-zip" required></label><label class="field full"><span>Typed confirmation</span><input name="confirmation" autocomplete="off" placeholder="RESTORE SCHOOL" required></label><label class="field full"><span>Reason</span><textarea name="reason" minlength="10" placeholder="State why this full restoration is required" required></textarea></label><div class="full button-row"><button class="button danger" id="schoolRestoreStart" type="button">Validate and restore school data</button></div></form>
       ${restoreHistoryHtml(restoreData?.jobs||[])}</section>`;
     byId("fullSchoolBackupCreate")?.addEventListener("click",createManualBackup);
     byId("schoolRestoreStart")?.addEventListener("click",startSchoolRestoreImport);
@@ -5189,7 +5197,7 @@
     if(error)throw error;
     if(data?.currentLevel!=="aal2")throw new Error("Multi-factor authentication required for full school restoration. Sign out, sign in again, and complete the authenticator-code step before restoring data.");
   }
-  async function waitForRestore(jobId,timeoutMs=900000){const start=Date.now();while(Date.now()-start<timeoutMs){const {data,error}=await state.client.from("school_restore_jobs").select("*").eq("id",jobId).single();if(error)throw error;if(data.status==="completed")return data;if(data.status==="failed")throw new Error(data.error_message||"School restoration failed.");await new Promise(r=>setTimeout(r,4000))}throw new Error("The restore is still running. Keep the system in maintenance mode and refresh Backup & Restore shortly.")}
+  async function waitForRestore(jobId,timeoutMs=900000){const start=Date.now();while(Date.now()-start<timeoutMs){const {data,error}=await state.client.from("school_restore_jobs").select("*").eq("id",jobId).single();if(error)throw error;if(data.status==="completed")return data;if(data.status==="failed"||data.status==="cancelled")throw new Error(data.error_message||"School restoration did not complete.");await new Promise(r=>setTimeout(r,4000))}throw new Error("The restore is still running. Keep the system in maintenance mode and refresh Backup & Restore shortly.")}
   async function startSchoolRestoreImport(){
     const form=byId("schoolRestoreForm"),file=form?.elements?.backup_file?.files?.[0],confirmation=String(form?.elements?.confirmation?.value||"").trim(),reason=String(form?.elements?.reason?.value||"").trim(),button=byId("schoolRestoreStart");
     if(!file){toast("Backup required","Choose the downloaded encrypted backup ZIP.","error");return}
@@ -5198,18 +5206,28 @@
     if(!await confirmAction("Restore all school data",`This will replace operational school records and protected files using ${file.name}. A pre-restore recovery backup will be created first. Do not continue while other users are active.`,"Begin restoration",true))return;
     if(!button)return;
     button.disabled=true;setSync("pending","Preparing restore");
+    let preparedJobId="",restoreSubmitted=false;
     try{
       await requireAal2ForRestore();
+      if(!/\.zip$/i.test(file.name)||Number(file.size||0)<=0||file.size>500*1024*1024)throw new Error("Choose a valid encrypted backup ZIP no larger than 500 MB.");
       const checksum=await sha256File(file);
       const prep=await invokeEdgeFunction("scheduled-backup",{action:"prepare_restore_import",file_name:file.name,file_size:file.size,checksum,reason});
       if(!prep?.path||!prep?.token||!prep?.job_id)throw new Error("Restore upload authorization was not returned.");
-      const {error:uploadError}=await state.client.storage.from(CONFIG.backupBucket).uploadToSignedUrl(prep.path,prep.token,file,{contentType:"application/zip"});if(uploadError)throw uploadError;
+      preparedJobId=prep.job_id;
+      // r26 restore ZIP MIME normalization contract: browsers on Windows may label ZIPs
+      // application/x-zip-compressed. Upload the identical bytes with canonical application/zip.
+      const uploadFile=String(file.type||"").toLowerCase()==="application/zip"?file:new File([file],file.name,{type:"application/zip",lastModified:file.lastModified});
+      const {error:uploadError}=await state.client.storage.from(CONFIG.backupBucket).uploadToSignedUrl(prep.path,prep.token,uploadFile,{contentType:"application/zip"});if(uploadError)throw uploadError;
       setSync("pending","Restoring school data");
+      restoreSubmitted=true;
       await invokeEdgeFunction("scheduled-backup",{action:"execute_restore_import",job_id:prep.job_id,confirmation,reason});
       const completed=await waitForRestore(prep.job_id);
       toast("School restoration completed",completed.verification_notes||"Data and protected files were restored and verified.","success",10000);setSync("online","Synced");
       await renderBackupRestore(state.viewToken);
-    }catch(error){toast("School restoration unsuccessful",friendlyError(error),"error",12000);setSync("pending","Attention required")}
+    }catch(error){
+      if(preparedJobId&&!restoreSubmitted)await invokeEdgeFunction("scheduled-backup",{action:"cancel_restore_import",job_id:preparedJobId}).catch(()=>null);
+      toast("School restoration unsuccessful",friendlyError(error),"error",12000);setSync("pending","Attention required")
+    }
     finally{button.disabled=false}
   }
 
@@ -5569,9 +5587,9 @@
   // Report Card Enterprise v7.0.2 next-term reopening date
   // ---------------------------------------------------------------------------
   function selectedTermId(selectId="maturityTerm") {
-    return byId(selectId)?.value||activeTerm()?.id||(state.boot?.terms||[])[0]?.id||"";
+    return nullableId(byId(selectId)?.value||activeTerm()?.id||(state.boot?.terms||[])[0]?.id);
   }
-  function selectedClassId(selectId="maturityClass") {return byId(selectId)?.value||""}
+  function selectedClassId(selectId="maturityClass") {return nullableId(byId(selectId)?.value)}
   function percentValue(value){return Math.max(0,Math.min(100,Number(value||0)))}
   function statusText(value){return String(value||"unknown").replaceAll("_"," ")}
   function emptyState(title,detail="") {return `<div class="empty"><strong>${esc(title)}</strong>${detail?`<span>${esc(detail)}</span>`:""}</div>`}
@@ -5579,7 +5597,8 @@
   function dateInputValue(value){return value?dateTimeLocalValue(value):""}
 
   async function renderOperations(token,force=false) {
-    const termId=state.operationsConsole?.term_id||activeTerm()?.id||(state.boot.terms||[])[0]?.id||"";
+    const termId=nullableId(state.operationsConsole?.term_id||activeTerm()?.id||(state.boot.terms||[])[0]?.id);
+    const hasAcademicTerm=Boolean(termId);
     const [ops,corrections,controls,backupData,recovery]=await Promise.all([
       rpc("operations_dashboard",{target_term_id:termId}),
       rpc("get_report_correction_console",{target_term_id:termId,target_class_id:null}),
@@ -5594,9 +5613,10 @@
     const healthRisk=Number(ops.critical_security_events||0)>0||Number(ops.failed_backups_30d||0)>0||Number(ops.published_without_pdf||0)>0;
     byId("content").innerHTML=`
       <div class="page-head"><div><h3>Production Operations</h3><p>Academic deadlines, term locks, report corrections, alerts, health, and recovery readiness</p></div><div class="page-actions"><button class="button secondary" id="operationsRefresh">Refresh</button></div></div>
+      ${hasAcademicTerm?"":`<div class="template-information warning"><strong>No academic term is configured</strong><span>Academic controls are unavailable until a term exists. System health, backup verification, and the non-destructive recovery rehearsal remain available.</span></div>`}
       <section class="panel pad maturity-filter"><div class="form-grid three">
-        <label class="field"><span>Academic term</span><select id="operationsTerm">${optionList(state.boot.terms||[],"id","name",termId)}</select></label>
-        <label class="field"><span>Class for bulk report generation</span><select id="operationsClass">${optionList(classes,"id","name","","Select class")}</select></label>
+        <label class="field"><span>Academic term</span><select id="operationsTerm" ${hasAcademicTerm?"":"disabled"}>${optionList(state.boot.terms||[],"id","name",termId||"")}</select></label>
+        <label class="field"><span>Class for bulk report generation</span><select id="operationsClass" ${hasAcademicTerm?"":"disabled"}>${optionList(classes,"id","name","","Select class")}</select></label>
         <div class="field"><span>Operational state</span><strong class="health-indicator ${healthRisk?"attention":"healthy"}">${healthRisk?"Attention required":"Healthy"}</strong></div>
       </div></section>
       <div class="stat-grid maturity-stat-grid">
@@ -5613,7 +5633,7 @@
             <label class="field"><span>Publication deadline</span><input type="datetime-local" name="publication_deadline" value="${attr(dateInputValue(control.publication_deadline))}"></label>
             <div class="field"><span>Phase locks</span><div class="check-grid"><label><input type="checkbox" name="scores_locked" ${control.scores_locked?"checked":""}> Scores</label><label><input type="checkbox" name="attendance_locked" ${control.attendance_locked?"checked":""}> Attendance</label><label><input type="checkbox" name="reports_locked" ${control.reports_locked?"checked":""}> Reports</label></div></div>
             <label class="field full"><span>Lock or reopening reason</span><textarea name="lock_reason" placeholder="Explain why the term is being locked or reopened">${esc(control.lock_reason||"")}</textarea></label>
-            <div class="full button-row"><button class="button primary" id="periodControlSave" type="button">Save period control</button><button class="button secondary" id="academicAlertsRun" type="button">Queue deadline alerts</button></div>
+            <div class="full button-row"><button class="button primary" id="periodControlSave" type="button" ${hasAcademicTerm?"":"disabled"}>Save period control</button><button class="button secondary" id="academicAlertsRun" type="button" ${hasAcademicTerm?"":"disabled"}>Queue deadline alerts</button></div>
           </form>
         </section>
         <section class="panel pad"><div class="section-title"><div><h4>System health</h4><p>Current production reliability indicators</p></div></div>
@@ -5627,15 +5647,18 @@
           ${role()==="system_admin"?`<div class="button-row" style="margin-top:15px"><button class="button secondary" id="recoveryRun" ${latestBackup?"":"disabled"}>Run recovery rehearsal</button></div>`:""}
         </section>
       </div>
-      <section class="panel" style="margin-top:18px"><div class="panel-header"><div><h3>Class report progress</h3><p>Created, submitted, approved, and published records by class</p></div><button class="button outline small" id="generateMissingReports">Preview missing reports</button></div>
+      <section class="panel" style="margin-top:18px"><div class="panel-header"><div><h3>Class report progress</h3><p>Created, submitted, approved, and published records by class</p></div><button class="button outline small" id="generateMissingReports" ${hasAcademicTerm?"":"disabled"}>Preview missing reports</button></div>
         ${progress.length?`<div class="table-wrap"><table><thead><tr><th>Class</th><th>Enrolled</th><th>Created</th><th>Submitted</th><th>Approved</th><th>Published</th><th>Completion</th></tr></thead><tbody>${progress.map(item=>{const pct=item.enrolled?Math.round(Number(item.published||0)/Number(item.enrolled)*100):0;return `<tr><td><strong>${esc(item.class_name)}</strong></td><td>${number(item.enrolled)}</td><td>${number(item.created)}</td><td>${number(item.submitted)}</td><td>${number(item.approved)}</td><td>${number(item.published)}</td><td><div class="inline-progress"><span style="width:${pct}%"></span></div><small>${pct}%</small></td></tr>`}).join("")}</tbody></table></div>`:emptyState("No class progress available")}
       </section>
       <section class="panel" style="margin-top:18px"><div class="panel-header"><div><h3>Published-report correction requests</h3><p>Original reports remain preserved; approved requests reopen controlled editing.</p></div><span class="chip">${number(pending.length)} pending</span></div>
         ${(corrections.requests||[]).length?`<div class="table-wrap"><table><thead><tr><th>Student and report</th><th>Class</th><th>Request</th><th>Status</th><th>Review</th></tr></thead><tbody>${(corrections.requests||[]).map(item=>`<tr><td><div class="cell-copy"><strong>${esc(item.student_name)}</strong><small>${esc(item.report_number||"Report")} • ${esc(item.term_name)}</small></div></td><td>${esc(item.class_name)}</td><td><div class="cell-copy"><strong>${esc(item.requester_name||"Authorised user")}</strong><small>${esc(item.reason)}</small></div></td><td>${statusBadge(item.status)}</td><td>${role()==="principal"&&item.status==="pending"?`<div class="button-row compact"><button class="button success small" data-correction-review="${attr(item.id)}" data-decision="approved">Approve</button><button class="button warning small" data-correction-review="${attr(item.id)}" data-decision="rejected">Reject</button></div>`:`<small>${esc(item.reviewer_name||item.review_note||"Awaiting review")}</small>`}</td></tr>`).join("")}</tbody></table></div>`:emptyState("No correction requests")}
       </section>
       ${role()==="system_admin"?`<section class="panel" style="margin-top:18px"><div class="panel-header"><div><h3>Recovery rehearsal history</h3><p>Non-destructive decrypt, reconstruction, and checksum tests</p></div></div>${(recovery.tests||[]).length?`<div class="table-wrap"><table><thead><tr><th>Started</th><th>Status</th><th>Tables</th><th>Rows</th><th>Storage objects</th><th>Notes</th></tr></thead><tbody>${(recovery.tests||[]).map(item=>`<tr><td>${isoDateTime(item.started_at)}</td><td>${statusBadge(item.status)}</td><td>${number(item.checked_tables)}</td><td>${number(item.checked_rows)}</td><td>${number(item.checked_storage_objects)}</td><td>${esc(item.notes||item.error_message||"—")}</td></tr>`).join("")}</tbody></table></div>`:emptyState("No recovery rehearsal has been recorded")}</section>`:""}`;
-    byId("operationsTerm").onchange=()=>{state.operationsConsole={term_id:byId("operationsTerm").value};renderOperations(token,true)};
+    byId("operationsTerm").onchange=()=>{state.operationsConsole={term_id:nullableId(byId("operationsTerm").value)};renderOperations(token,true)};
     byId("operationsRefresh").onclick=()=>renderOperations(token,true);
+    if(!hasAcademicTerm){
+      $$("#periodControlForm input,#periodControlForm textarea").forEach(element=>{element.disabled=true});
+    }
     byId("periodControlSave").onclick=savePeriodControl;
     byId("academicAlertsRun").onclick=runAcademicAlerts;
     byId("generateMissingReports").onclick=previewMissingReports;
@@ -5644,15 +5667,16 @@
   }
 
   async function savePeriodControl() {
-    const form=byId("periodControlForm"),values=formObject(form),button=byId("periodControlSave"),termId=byId("operationsTerm").value;
+    const form=byId("periodControlForm"),values=formObject(form),button=byId("periodControlSave"),termId=nullableId(byId("operationsTerm")?.value);
+    if(!termId){toast("Academic term required","Create or select an academic term before changing period controls.","warning");return}
     const locked=form.elements.scores_locked.checked||form.elements.attendance_locked.checked||form.elements.reports_locked.checked;
     if(locked&&values.lock_reason.trim().length<5){toast("Period control not saved","Provide a clear reason before locking an academic phase.","error");return}
     button.disabled=true;
     try{await rpc("save_academic_period_control",{payload:{term_id:termId,...values,scores_locked:form.elements.scores_locked.checked,attendance_locked:form.elements.attendance_locked.checked,reports_locked:form.elements.reports_locked.checked}});toast("Academic period control saved");await renderOperations(state.viewToken,true)}
     catch(error){toast("Period control not saved",friendlyError(error),"error",7500)}finally{button.disabled=false}
   }
-  async function runAcademicAlerts(){const button=byId("academicAlertsRun");button.disabled=true;try{const result=await rpc("run_academic_alerts",{target_term_id:byId("operationsTerm").value});toast("Academic alerts queued",`${number(result.queued)} new notification${Number(result.queued)===1?"":"s"} queued.`);await loadNotificationCount()}catch(error){toast("Alerts not queued",friendlyError(error),"error")}finally{button.disabled=false}}
-  async function previewMissingReports(){const termId=byId("operationsTerm").value,classId=byId("operationsClass").value;if(!classId){toast("Select a class","Choose the class before previewing missing reports.","warning");return}try{const preview=await rpc("bulk_generate_missing_reports",{target_term_id:termId,target_class_id:classId,preview_only:true});if(!preview.missing_reports){toast("No missing reports","Every active student already has a report for this term.");return}if(!await confirmAction("Generate missing draft reports",`${number(preview.missing_reports)} missing report record(s) will be created. Existing reports will not be changed.`,"Generate reports"))return;const result=await rpc("bulk_generate_missing_reports",{target_term_id:termId,target_class_id:classId,preview_only:false});toast("Draft reports generated",`${number(result.created_reports)} report record(s) created.`);await renderOperations(state.viewToken,true)}catch(error){toast("Reports not generated",friendlyError(error),"error",7500)}}
+  async function runAcademicAlerts(){const button=byId("academicAlertsRun"),termId=nullableId(byId("operationsTerm")?.value);if(!termId){toast("Academic term required","Create or select an academic term before queueing deadline alerts.","warning");return}button.disabled=true;try{const result=await rpc("run_academic_alerts",{target_term_id:termId});toast("Academic alerts queued",`${number(result.queued)} new notification${Number(result.queued)===1?"":"s"} queued.`);await loadNotificationCount()}catch(error){toast("Alerts not queued",friendlyError(error),"error")}finally{button.disabled=false}}
+  async function previewMissingReports(){const termId=nullableId(byId("operationsTerm")?.value),classId=nullableId(byId("operationsClass")?.value);if(!termId){toast("Academic term required","Create or select an academic term before generating report records.","warning");return}if(!classId){toast("Select a class","Choose the class before previewing missing reports.","warning");return}try{const preview=await rpc("bulk_generate_missing_reports",{target_term_id:termId,target_class_id:classId,preview_only:true});if(!preview.missing_reports){toast("No missing reports","Every active student already has a report for this term.");return}if(!await confirmAction("Generate missing draft reports",`${number(preview.missing_reports)} missing report record(s) will be created. Existing reports will not be changed.`,"Generate reports"))return;const result=await rpc("bulk_generate_missing_reports",{target_term_id:termId,target_class_id:classId,preview_only:false});toast("Draft reports generated",`${number(result.created_reports)} report record(s) created.`);await renderOperations(state.viewToken,true)}catch(error){toast("Reports not generated",friendlyError(error),"error",7500)}}
   async function reviewCorrectionRequest(id,decision){modal(`${decision==="approved"?"Approve":"Reject"} correction request`,"Principal oversight",`<label class="field"><span>Review note</span><textarea id="correctionReviewNote" placeholder="Record the approval conditions or rejection reason"></textarea></label>`,`<button class="button ghost" id="correctionReviewCancel">Cancel</button><button class="button ${decision==="approved"?"success":"warning"}" id="correctionReviewConfirm">${decision==="approved"?"Approve":"Reject"}</button>`,"small");byId("correctionReviewCancel").onclick=closeModal;byId("correctionReviewConfirm").onclick=async()=>{const button=byId("correctionReviewConfirm");button.disabled=true;try{await rpc("review_report_correction",{target_request_id:id,decision,review_note_text:byId("correctionReviewNote").value.trim()});closeModal();toast("Correction request reviewed");await renderOperations(state.viewToken,true)}catch(error){toast("Review not saved",friendlyError(error),"error")}finally{button.disabled=false}}}
   async function runRecoveryRehearsal(backupId){if(!backupId)return;if(!await confirmAction("Run recovery rehearsal","The latest completed encrypted backup will be decrypted and reconstructed in memory. Production records will not be overwritten.","Run rehearsal"))return;const button=byId("recoveryRun");button.disabled=true;setSync("pending","Testing recovery");try{const data=await invokeEdgeFunction("scheduled-backup",{action:"recovery_test",backup_id:backupId});toast("Recovery rehearsal passed",`${number(data.checked_tables)} tables, ${number(data.checked_rows)} rows, and ${number(data.checked_storage_objects)} storage objects verified.`);setSync("online","Synced");await renderOperations(state.viewToken,true)}catch(error){toast("Recovery rehearsal failed",friendlyError(error),"error",9000);setSync("pending","Attention required")}finally{button.disabled=false}}
 
@@ -6118,14 +6142,15 @@
 
 
   async function renderInsights(token,force=false) {
-    const termId=state.analyticsData?.term_id||activeTerm()?.id||(state.boot.terms||[])[0]?.id||"",visibleClasses=await visibleClassesForCurrentRole(),classId=state.analyticsData?.class_id||"";
-    const data=await rpc("academic_analytics",{target_term_id:termId,target_class_id:classId||null});if(token!==state.viewToken)return;state.analyticsData={...data,term_id:termId,class_id:classId};const summary=data.summary||{};
-    byId("content").innerHTML=`<div class="page-head"><div><h3>Academic Insights</h3><p>Privacy-aware class, subject, attendance, and report-completion trends</p></div><div class="page-actions"><button class="button secondary" id="insightsExport">Export summary</button></div></div>
-      <section class="panel pad"><div class="form-grid"><label class="field"><span>Term</span><select id="insightsTerm">${optionList(state.boot.terms||[],"id","name",termId)}</select></label><label class="field"><span>Class</span><select id="insightsClass">${optionList(visibleClasses,"id","name",classId,"All authorised classes")}</select></label></div></section>
+    const termId=nullableId(state.analyticsData?.term_id||activeTerm()?.id||(state.boot.terms||[])[0]?.id),visibleClasses=await visibleClassesForCurrentRole(),classId=nullableId(state.analyticsData?.class_id);
+    const data=await rpc("academic_analytics",{target_term_id:termId,target_class_id:classId});if(token!==state.viewToken)return;state.analyticsData={...data,term_id:termId,class_id:classId};const summary=data.summary||{},hasAcademicTerm=Boolean(termId);
+    byId("content").innerHTML=`<div class="page-head"><div><h3>Academic Insights</h3><p>Privacy-aware class, subject, attendance, and report-completion trends</p></div><div class="page-actions"><button class="button secondary" id="insightsExport" ${hasAcademicTerm?"":"disabled"}>Export summary</button></div></div>
+      ${hasAcademicTerm?"":`<div class="template-information warning"><strong>No academic term is configured</strong><span>Insights will become available after an academic term is created. The empty Master remains valid and operational.</span></div>`}
+      <section class="panel pad"><div class="form-grid"><label class="field"><span>Term</span><select id="insightsTerm" ${hasAcademicTerm?"":"disabled"}>${optionList(state.boot.terms||[],"id","name",termId||"")}</select></label><label class="field"><span>Class</span><select id="insightsClass" ${hasAcademicTerm?"":"disabled"}>${optionList(visibleClasses,"id","name",classId||"","All authorised classes")}</select></label></div></section>
       <div class="stat-grid maturity-stat-grid" style="margin-top:18px">${statCard("blue","◉","Students",summary.students)}${statCard("purple","▤","Reports",summary.reports)}${statCard("gold","%","Average",`${number(summary.average,1)}%`)}${statCard("green","✓","Attendance",`${number(summary.attendance_rate,1)}%`)}</div>
       <div class="grid two maturity-grid"><section class="panel pad"><div class="section-title"><h4>Subject performance</h4></div>${(data.subjects||[]).length?`<div class="bar-list analytics-bars">${data.subjects.map(item=>`<div class="bar-item"><label><strong>${esc(item.subject_name)}</strong><small>${number(item.scored)} records • ${number(item.lowest,1)}–${number(item.highest,1)}</small></label><div class="bar-track"><span style="width:${percentValue(item.average)}%"></span></div><b>${number(item.average,1)}%</b></div>`).join("")}</div>`:emptyState("No subject results")}</section><section class="panel pad"><div class="section-title"><h4>Class overview</h4></div>${(data.classes||[]).length?`<div class="table-wrap"><table><thead><tr><th>Class</th><th>Students</th><th>Average</th><th>Attendance</th><th>Published</th></tr></thead><tbody>${data.classes.map(item=>`<tr><td>${esc(item.class_name)}</td><td>${number(item.students)}</td><td>${number(item.average,1)}%</td><td>${number(item.attendance_rate,1)}%</td><td>${number(item.published)}</td></tr>`).join("")}</tbody></table></div>`:emptyState("No class analytics")}</section></div>`;
-    byId("insightsTerm").onchange=()=>{state.analyticsData={term_id:byId("insightsTerm").value,class_id:byId("insightsClass").value};renderInsights(token,true)};
-    byId("insightsClass").onchange=()=>{state.analyticsData={term_id:byId("insightsTerm").value,class_id:byId("insightsClass").value};renderInsights(token,true)};
+    byId("insightsTerm").onchange=()=>{state.analyticsData={term_id:nullableId(byId("insightsTerm").value),class_id:nullableId(byId("insightsClass").value)};renderInsights(token,true)};
+    byId("insightsClass").onchange=()=>{state.analyticsData={term_id:nullableId(byId("insightsTerm").value),class_id:nullableId(byId("insightsClass").value)};renderInsights(token,true)};
     byId("insightsExport").onclick=()=>{const headers=["class","students","average","attendance_rate","published"];downloadText("academic-insights.csv",[headers.join(","),...(data.classes||[]).map(item=>[item.class_name,item.students,item.average,item.attendance_rate,item.published].map(csvCell).join(","))].join("\n"),"text/csv")};
   }
 
