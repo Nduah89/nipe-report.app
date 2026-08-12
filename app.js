@@ -453,7 +453,7 @@
     if(msg.includes("Package signing bootstrap SQL is not installed")) return "Install the package-signing Vault bootstrap SQL once, redeploy platform-package-manager, then refresh GitHub Navigator. The signing key will be generated and encrypted automatically.";
     if(/stored package signing public key does not match|package signing metadata repair/i.test(msg)) return "The private package-signing key remains protected. Deploy the current signing-continuity SQL and package manager, then refresh so its public metadata can be reconciled in place.";
     if(/package signing vault|stored package signing key|package signing key fingerprint/i.test(msg)) return "The protected package-signing key could not be read or verified. Apply the current signing recovery patch and review the platform-package-manager logs before generating packages.";
-    if(/not having enough compute resources|compute resources/i.test(msg)) return "Protected-template activation exceeded the Edge Function compute budget. Deploy the r13 compute-safe package manager and frontend, then upload the template again.";
+    if(/not having enough compute resources|compute resources|status code 546|\b546\b/i.test(msg)) return "The protected package operation exceeded the server compute budget. Report Card Enterprise r28 uses a compute-safe STORE-only generated-package path and activation reconciliation. Refresh GitHub Navigator and retry once; if it persists, review the platform-package-manager logs.";
     if(msg.toLowerCase().includes("service configuration unavailable")) return "The scheduled-backup Edge Function is missing its Supabase service configuration. Redeploy it and confirm SUPABASE_URL and the service-role secret are available.";
     if(msg.toLowerCase().includes("bucket not found")) return "A required private Storage bucket is unavailable. Apply the current setup, confirm the system-backups bucket exists, and redeploy scheduled-backup.";
     if(msg.toLowerCase().includes("failed to fetch")||msg.toLowerCase().includes("network")) return "The server could not be reached.";
@@ -5169,6 +5169,27 @@
   }
 
 
+  function terminalCorrectionHistoryCount(requests=[]){return requests.filter(item=>["rejected","cancelled","applied"].includes(String(item.status||""))).length}
+  function terminalRecoveryHistoryCount(tests=[]){return tests.filter(item=>["passed","failed"].includes(String(item.status||""))).length}
+  function terminalRestoreHistoryCount(jobs=[]){return jobs.filter(item=>["completed","failed","cancelled"].includes(String(item.status||""))).length}
+  function safeFailedBackupHistoryCount(backups=[]){return backups.filter(item=>item.status==="failed"&&Number(item.storage_bytes||0)===0&&!String(item.storage_path||"")&&!String(item.manifest_path||"")&&!String(item.database_path||"")).length}
+  async function clearSectionHistory(scope,title,description,refresh){
+    modal(title,description,`<div class="destructive-confirmation"><label class="field"><span>Reset reason</span><textarea id="sectionHistoryClearReason" minlength="5" required placeholder="Why are these history records being cleared?"></textarea></label><label class="field"><span>Type CLEAR HISTORY to confirm</span><input id="sectionHistoryClearText" autocomplete="off" required></label></div>`,`<button class="button ghost" id="sectionHistoryClearCancel" type="button">Cancel</button><button class="button danger" id="sectionHistoryClearConfirm" type="button">Clear history</button>`,"small");
+    byId("sectionHistoryClearCancel").onclick=closeModal;
+    byId("sectionHistoryClearConfirm").onclick=async()=>{
+      const reason=byId("sectionHistoryClearReason").value.trim(),confirmation=byId("sectionHistoryClearText").value.trim();
+      if(reason.length<5||confirmation!=="CLEAR HISTORY"){toast("History not cleared","Enter a reason and type CLEAR HISTORY exactly.","error");return}
+      const button=byId("sectionHistoryClearConfirm");button.disabled=true;button.textContent="Clearing";
+      try{
+        const result=await rpc("clear_section_history",{scope_text:scope,reason_text:reason,confirmation_text:confirmation});
+        closeModal();
+        const deleted=Object.entries(result||{}).filter(([key])=>key.endsWith("_deleted")).reduce((sum,[,value])=>sum+Number(value||0),0);
+        toast("History cleared",`${number(deleted)} eligible history record${deleted===1?"":"s"} permanently removed. Protected operational records were preserved.`);
+        if(refresh)await refresh();
+      }catch(error){toast("History not cleared",friendlyError(error),"error",8500)}finally{button.disabled=false;button.textContent="Clear history"}
+    };
+  }
+
   async function renderBackupRestore(token) {
     let backupData=null,restoreData=null,backupLoadError="",restoreLoadError="";
     try{backupData=await rpc("backup_dashboard")}catch(error){backupLoadError=friendlyError(error)}
@@ -5177,7 +5198,8 @@
     const host=byId("content");
     if(!host)throw new Error("The Backup & Restore content host is unavailable. Reload the application.");
     const loadWarnings=[backupLoadError?`<section class="license-banner warning"><div><strong>Backup history unavailable</strong><span>${esc(backupLoadError)}</span></div></section>`:"",restoreLoadError?`<section class="license-banner warning"><div><strong>Restore history unavailable</strong><span>${esc(restoreLoadError)}</span></div></section>`:""].join("");
-    host.innerHTML=`<div class="page-head"><div><h3>Full School Backup and Restore</h3><p>Encrypted continuity packages for disaster recovery and migration to a compatible fresh installation.</p></div></div>
+    const cleanupEligible=safeFailedBackupHistoryCount(backupData?.backups||[])+terminalRestoreHistoryCount(restoreData?.jobs||[]);
+    host.innerHTML=`<div class="page-head"><div><h3>Full School Backup and Restore</h3><p>Encrypted continuity packages for disaster recovery and migration to a compatible fresh installation.</p></div><div class="page-actions"><button class="button danger small" id="backupRestoreHistoryClear" type="button" ${cleanupEligible?"":"disabled"}>Clear history</button></div></div>
       ${loadWarnings}
       <section class="license-banner warning"><div><strong>High-impact administration area</strong><span>A restore replaces operational school records and protected files. Use MFA, make a current recovery backup first, and keep all users out of the system until verification completes.</span></div></section>
       <section class="panel pad backup-recovery-panel"><div class="section-title"><div><h4>Create and Download Full School Backup</h4><p>Includes academic records, users, reports, attendance, transcripts, certificates, templates, photographs and signatures. Password hashes and platform signing secrets are never exported.</p></div></div>
@@ -5188,9 +5210,10 @@
       ${restoreHistoryHtml(restoreData?.jobs||[])}</section>`;
     byId("fullSchoolBackupCreate")?.addEventListener("click",createManualBackup);
     byId("schoolRestoreStart")?.addEventListener("click",startSchoolRestoreImport);
+    byId("backupRestoreHistoryClear")?.addEventListener("click",()=>clearSectionHistory("backup_restore","Clear Backup & Restore History","This permanently removes completed/failed/cancelled restore-attempt records and failed backup records whose encrypted payload has already been cleaned. Completed or verified backup packages are never deleted by this action.",refreshBackupInterface));
     bindBackupHistoryControls();
   }
-  function restoreHistoryHtml(jobs=[]){if(!jobs.length)return `<div class="empty"><strong>No restoration has been attempted</strong><span>Verified restore events will appear here.</span></div>`;return `<div class="table-wrap"><table><thead><tr><th>Created</th><th>Package</th><th>Status</th><th>Source</th><th>Result</th></tr></thead><tbody>${jobs.map(j=>`<tr><td>${isoDateTime(j.created_at)}</td><td><strong>${esc(j.source_filename||"-")}</strong><br><small>${readableBytes(j.package_size||0)}</small></td><td><span class="chip ${j.status==="completed"?"success":j.status==="failed"?"danger":"warning"}">${esc(statusText(j.status))}</span></td><td>${esc(j.source_school_name||"Pending validation")}<br><small>${esc(j.source_schema_version||"")}</small></td><td>${j.error_message?`<small>${esc(j.error_message)}</small>`:esc(j.verification_notes||"")}</td></tr>`).join("")}</tbody></table></div>`}
+  function restoreHistoryHtml(jobs=[]){if(!jobs.length)return `<div class="empty"><strong>No restoration has been attempted</strong><span>Verified restore events will appear here.</span></div>`;return `<div class="table-wrap history-scroll restore-history-scroll"><table><thead><tr><th>Created</th><th>Package</th><th>Status</th><th>Source</th><th>Result</th></tr></thead><tbody>${jobs.map(j=>`<tr><td>${isoDateTime(j.created_at)}</td><td><strong>${esc(j.source_filename||"-")}</strong><br><small>${readableBytes(j.package_size||0)}</small></td><td><span class="chip ${j.status==="completed"?"success":j.status==="failed"?"danger":"warning"}">${esc(statusText(j.status))}</span></td><td>${esc(j.source_school_name||"Pending validation")}<br><small>${esc(j.source_schema_version||"")}</small></td><td>${j.error_message?`<small>${esc(j.error_message)}</small>`:esc(j.verification_notes||"")}</td></tr>`).join("")}</tbody></table></div>`}
   async function sha256File(file){const hash=await crypto.subtle.digest("SHA-256",await file.arrayBuffer());return [...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,"0")).join("")}
   async function requireAal2ForRestore(){
     const {data,error}=await state.client.auth.mfa.getAuthenticatorAssuranceLevel();
@@ -5466,7 +5489,7 @@
   }
   function backupHistoryHtml(backups=[]) {
     if(!backups.length)return `<div class="empty"><strong>No full backup has been recorded</strong><span>Create the first encrypted continuity backup.</span></div>`;
-    return `<div class="table-wrap backup-history"><table><thead><tr><th>Created</th><th>Status</th><th>Database rows</th><th>Storage</th><th>Off-site</th><th></th></tr></thead><tbody>${backups.map(backup=>{
+    return `<div class="table-wrap history-scroll backup-history"><table><thead><tr><th>Created</th><th>Status</th><th>Database rows</th><th>Storage</th><th>Off-site</th><th></th></tr></thead><tbody>${backups.map(backup=>{
       const rows=Object.values(backup.row_counts||{}).reduce((sum,value)=>sum+Number(value||0),0);
       const objectCount=Object.values(backup.storage_object_counts||{}).reduce((sum,value)=>sum+Number(value||0),0);
       return `<tr><td><strong>${isoDateTime(backup.created_at)}</strong><br><small>${esc(backup.backup_key||backup.id)}</small></td><td>${backupStatusLabel(backup)}${backup.error_message?`<br><small>${esc(backup.error_message)}</small>`:""}</td><td>${number(rows)}</td><td>${number(objectCount)} files<br><small>${readableBytes(backup.storage_bytes||0)}</small></td><td>${backup.offsite_copied_at?`${isoDateTime(backup.offsite_copied_at)}${backup.offsite_copy_note?`<br><small>${esc(backup.offsite_copy_note)}</small>`:""}`:"Not confirmed"}</td><td><div class="button-row compact"><button class="button ghost small" type="button" data-backup-verify="${attr(backup.id)}" ${backup.status!=="completed"||backup.backup_type!=="full"?"disabled":""}>Verify</button><button class="button secondary small" type="button" data-backup-download="${attr(backup.id)}" ${backup.status!=="completed"||backup.backup_type!=="full"?"disabled":""}>Download encrypted package</button><button class="button ghost small" type="button" data-backup-offsite="${attr(backup.id)}" ${backup.status!=="completed"||backup.backup_type!=="full"||backup.offsite_copied_at?"disabled":""}>Confirm off-site copy</button></div></td></tr>`;
@@ -5609,6 +5632,7 @@
     if(token!==state.viewToken)return;
     state.operationsConsole={...ops,corrections,controls,backupData,recovery,term_id:termId};
     const control=ops.term_control||{},classes=state.boot.classes||[],progress=ops.class_progress||[],pending=(corrections.requests||[]).filter(item=>item.status==="pending");
+    const correctionHistoryCount=terminalCorrectionHistoryCount(corrections.requests||[]),recoveryHistoryCount=terminalRecoveryHistoryCount(recovery.tests||[]);
     const latestBackup=(backupData.backups||[]).find(item=>item.status==="completed"&&item.backup_type==="full");
     const healthRisk=Number(ops.critical_security_events||0)>0||Number(ops.failed_backups_30d||0)>0||Number(ops.published_without_pdf||0)>0;
     byId("content").innerHTML=`
@@ -5647,13 +5671,13 @@
           ${role()==="system_admin"?`<div class="button-row" style="margin-top:15px"><button class="button secondary" id="recoveryRun" ${latestBackup?"":"disabled"}>Run recovery rehearsal</button></div>`:""}
         </section>
       </div>
-      <section class="panel" style="margin-top:18px"><div class="panel-header"><div><h3>Class report progress</h3><p>Created, submitted, approved, and published records by class</p></div><button class="button outline small" id="generateMissingReports" ${hasAcademicTerm?"":"disabled"}>Preview missing reports</button></div>
-        ${progress.length?`<div class="table-wrap"><table><thead><tr><th>Class</th><th>Enrolled</th><th>Created</th><th>Submitted</th><th>Approved</th><th>Published</th><th>Completion</th></tr></thead><tbody>${progress.map(item=>{const pct=item.enrolled?Math.round(Number(item.published||0)/Number(item.enrolled)*100):0;return `<tr><td><strong>${esc(item.class_name)}</strong></td><td>${number(item.enrolled)}</td><td>${number(item.created)}</td><td>${number(item.submitted)}</td><td>${number(item.approved)}</td><td>${number(item.published)}</td><td><div class="inline-progress"><span style="width:${pct}%"></span></div><small>${pct}%</small></td></tr>`}).join("")}</tbody></table></div>`:emptyState("No class progress available")}
+      <section class="panel" style="margin-top:18px"><div class="panel-header"><div><h3>Class report progress</h3><p>Current created, submitted, approved, and published records by class. This is live operational data, not deletable history.</p></div><button class="button outline small" id="generateMissingReports" ${hasAcademicTerm?"":"disabled"}>Preview missing reports</button></div>
+        ${progress.length?`<div class="table-wrap history-scroll class-progress-scroll"><table><thead><tr><th>Class</th><th>Enrolled</th><th>Created</th><th>Submitted</th><th>Approved</th><th>Published</th><th>Completion</th></tr></thead><tbody>${progress.map(item=>{const pct=item.enrolled?Math.round(Number(item.published||0)/Number(item.enrolled)*100):0;return `<tr><td><strong>${esc(item.class_name)}</strong></td><td>${number(item.enrolled)}</td><td>${number(item.created)}</td><td>${number(item.submitted)}</td><td>${number(item.approved)}</td><td>${number(item.published)}</td><td><div class="inline-progress"><span style="width:${pct}%"></span></div><small>${pct}%</small></td></tr>`}).join("")}</tbody></table></div>`:emptyState("No class progress available")}
       </section>
-      <section class="panel" style="margin-top:18px"><div class="panel-header"><div><h3>Published-report correction requests</h3><p>Original reports remain preserved; approved requests reopen controlled editing.</p></div><span class="chip">${number(pending.length)} pending</span></div>
-        ${(corrections.requests||[]).length?`<div class="table-wrap"><table><thead><tr><th>Student and report</th><th>Class</th><th>Request</th><th>Status</th><th>Review</th></tr></thead><tbody>${(corrections.requests||[]).map(item=>`<tr><td><div class="cell-copy"><strong>${esc(item.student_name)}</strong><small>${esc(item.report_number||"Report")} • ${esc(item.term_name)}</small></div></td><td>${esc(item.class_name)}</td><td><div class="cell-copy"><strong>${esc(item.requester_name||"Authorised user")}</strong><small>${esc(item.reason)}</small></div></td><td>${statusBadge(item.status)}</td><td>${role()==="principal"&&item.status==="pending"?`<div class="button-row compact"><button class="button success small" data-correction-review="${attr(item.id)}" data-decision="approved">Approve</button><button class="button warning small" data-correction-review="${attr(item.id)}" data-decision="rejected">Reject</button></div>`:`<small>${esc(item.reviewer_name||item.review_note||"Awaiting review")}</small>`}</td></tr>`).join("")}</tbody></table></div>`:emptyState("No correction requests")}
+      <section class="panel" style="margin-top:18px"><div class="panel-header"><div><h3>Published-report correction requests</h3><p>Original reports remain preserved; approved requests reopen controlled editing.</p></div><div class="button-row compact"><span class="chip">${number(pending.length)} pending</span>${role()==="system_admin"?`<button class="button danger small" id="correctionHistoryClear" type="button" ${correctionHistoryCount?"":"disabled"}>Clear resolved history</button>`:""}</div></div>
+        ${(corrections.requests||[]).length?`<div class="table-wrap history-scroll correction-history-scroll"><table><thead><tr><th>Student and report</th><th>Class</th><th>Request</th><th>Status</th><th>Review</th></tr></thead><tbody>${(corrections.requests||[]).map(item=>`<tr><td><div class="cell-copy"><strong>${esc(item.student_name)}</strong><small>${esc(item.report_number||"Report")} • ${esc(item.term_name)}</small></div></td><td>${esc(item.class_name)}</td><td><div class="cell-copy"><strong>${esc(item.requester_name||"Authorised user")}</strong><small>${esc(item.reason)}</small></div></td><td>${statusBadge(item.status)}</td><td>${role()==="principal"&&item.status==="pending"?`<div class="button-row compact"><button class="button success small" data-correction-review="${attr(item.id)}" data-decision="approved">Approve</button><button class="button warning small" data-correction-review="${attr(item.id)}" data-decision="rejected">Reject</button></div>`:`<small>${esc(item.reviewer_name||item.review_note||"Awaiting review")}</small>`}</td></tr>`).join("")}</tbody></table></div>`:emptyState("No correction requests")}
       </section>
-      ${role()==="system_admin"?`<section class="panel" style="margin-top:18px"><div class="panel-header"><div><h3>Recovery rehearsal history</h3><p>Non-destructive decrypt, reconstruction, and checksum tests</p></div></div>${(recovery.tests||[]).length?`<div class="table-wrap"><table><thead><tr><th>Started</th><th>Status</th><th>Tables</th><th>Rows</th><th>Storage objects</th><th>Notes</th></tr></thead><tbody>${(recovery.tests||[]).map(item=>`<tr><td>${isoDateTime(item.started_at)}</td><td>${statusBadge(item.status)}</td><td>${number(item.checked_tables)}</td><td>${number(item.checked_rows)}</td><td>${number(item.checked_storage_objects)}</td><td>${esc(item.notes||item.error_message||"—")}</td></tr>`).join("")}</tbody></table></div>`:emptyState("No recovery rehearsal has been recorded")}</section>`:""}`;
+      ${role()==="system_admin"?`<section class="panel" style="margin-top:18px"><div class="panel-header"><div><h3>Recovery rehearsal history</h3><p>Non-destructive decrypt, reconstruction, and checksum tests</p></div><button class="button danger small" id="recoveryHistoryClear" type="button" ${recoveryHistoryCount?"":"disabled"}>Clear history</button></div>${(recovery.tests||[]).length?`<div class="table-wrap history-scroll recovery-history-scroll"><table><thead><tr><th>Started</th><th>Status</th><th>Tables</th><th>Rows</th><th>Storage objects</th><th>Notes</th></tr></thead><tbody>${(recovery.tests||[]).map(item=>`<tr><td>${isoDateTime(item.started_at)}</td><td>${statusBadge(item.status)}</td><td>${number(item.checked_tables)}</td><td>${number(item.checked_rows)}</td><td>${number(item.checked_storage_objects)}</td><td>${esc(item.notes||item.error_message||"—")}</td></tr>`).join("")}</tbody></table></div>`:emptyState("No recovery rehearsal has been recorded")}</section>`:""}`;
     byId("operationsTerm").onchange=()=>{state.operationsConsole={term_id:nullableId(byId("operationsTerm").value)};renderOperations(token,true)};
     byId("operationsRefresh").onclick=()=>renderOperations(token,true);
     if(!hasAcademicTerm){
@@ -5663,6 +5687,8 @@
     byId("academicAlertsRun").onclick=runAcademicAlerts;
     byId("generateMissingReports").onclick=previewMissingReports;
     byId("recoveryRun")?.addEventListener("click",()=>runRecoveryRehearsal(latestBackup?.id));
+    byId("correctionHistoryClear")?.addEventListener("click",()=>clearSectionHistory("report_corrections","Clear Resolved Correction History","This permanently removes only rejected, cancelled, and fully applied correction-request history and its event rows. Pending and approved requests, reports, revisions, publications, scores, and PDFs are preserved.",()=>renderOperations(state.viewToken,true)));
+    byId("recoveryHistoryClear")?.addEventListener("click",()=>clearSectionHistory("recovery_rehearsals","Clear Recovery Rehearsal History","This permanently removes completed recovery-rehearsal evidence rows. Backup packages and production data are not deleted. Run a new rehearsal afterward if you want a fresh recovery-readiness record.",()=>renderOperations(state.viewToken,true)));
     $$('[data-correction-review]').forEach(button=>button.onclick=()=>reviewCorrectionRequest(button.dataset.correctionReview,button.dataset.decision));
   }
 
@@ -6173,7 +6199,11 @@
 
 
   const PACKAGE_LOGO_TYPES=new Set(["image/png"]);
-  const PACKAGE_LOGO_MAX_BYTES=5*1024*1024;
+  const PACKAGE_LOGO_SOURCE_MAX_BYTES=5*1024*1024;
+  // r28 Free-plan generated-package logo budget: accept a normal PNG source, then
+  // normalize it before server generation so four intentional package copies can
+  // never consume the private generated-package file-size headroom.
+  const PACKAGE_LOGO_MAX_BYTES=1000000;
   const PACKAGE_TEMPLATE_MAX_BYTES=48*1000*1000;
 
   function githubNavigatorStepsHtml() {
@@ -6183,6 +6213,40 @@
       <article><b>3</b><div><strong>Download securely</strong><span>The server returns a short-lived signed URL and records every authorized download.</span></div></article>
       <article><b>4</b><div><strong>Deploy and distribute</strong><span>Deploy only GITHUB_PAGES_FRONTEND, then distribute the confirmed Android r6 APK, Windows w1 setup EXE, or privately built school-branded installers.</span></div></article>
     </div>`;
+  }
+
+  async function normalisePackageSchoolLogo(file){
+    if(!file)throw new Error("Select the school logo first.");
+    if(!PACKAGE_LOGO_TYPES.has(String(file.type||"").toLowerCase()))throw new Error("The package school logo must be a PNG image.");
+    if(Number(file.size||0)<=0||file.size>PACKAGE_LOGO_SOURCE_MAX_BYTES)throw new Error("The source school logo must be 5 MB or smaller.");
+    const objectUrl=URL.createObjectURL(file);let image;
+    try{image=await loadImage(objectUrl)}finally{URL.revokeObjectURL(objectUrl)}
+    if(!image?.width||!image?.height)throw new Error("The selected package school logo could not be decoded.");
+    if(image.width<256||image.height<256||image.width>4096||image.height>4096)throw new Error("The package school logo must be between 256 and 4096 pixels on each side.");
+    const ratio=image.width/image.height;if(ratio<0.5||ratio>2)throw new Error("The package school logo must use a reasonably square aspect ratio.");
+    // r28 adaptive PNG normalization contract. Preserve a high-resolution logo where
+    // possible, but progressively reduce the square canvas until the deterministic
+    // 1,000,000-byte package budget is met. The source file itself remains untouched.
+    const sizes=[1024,896,768,640,576,512,480,448,384,320,256];
+    for(const size of sizes){
+      const canvas=document.createElement("canvas");canvas.width=size;canvas.height=size;const ctx=canvas.getContext("2d");if(!ctx)throw new Error("The browser could not prepare the package school logo.");
+      ctx.clearRect(0,0,size,size);ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality="high";const pad=Math.max(8,Math.round(size*0.024));drawImageContain(ctx,image,pad,pad,size-pad*2,size-pad*2);
+      const blob=await new Promise((resolve,reject)=>canvas.toBlob(value=>value?resolve(value):reject(new Error("The package school logo could not be encoded.")),"image/png"));canvas.width=1;canvas.height=1;
+      if(blob.size<=PACKAGE_LOGO_MAX_BYTES)return blob;
+    }
+    throw new Error("The normalized package school logo still exceeds 1 MB. Use a simpler PNG logo.");
+  }
+
+  async function reconcileProtectedTemplateActivation(receipt){
+    // r28 activation reconciliation contract: an Edge Function may commit the active
+    // template and then exhaust its response compute budget. Confirm the authoritative
+    // active SHA before telling the operator that installation failed.
+    const expected=String(receipt?.archive_sha256||"").trim().toLowerCase();if(!/^[a-f0-9]{64}$/.test(expected))return null;
+    for(let attempt=0;attempt<3;attempt+=1){
+      await new Promise(resolve=>setTimeout(resolve,700+attempt*500));
+      try{const status=await invokePlatformPackageManager("status",{offset:0,limit:1,search:""}),template=status?.template;if(template&&template.active!==false&&String(template.sha256||"").toLowerCase()===expected)return status}catch{}
+    }
+    return null;
   }
 
   async function invokePlatformPackageManager(action,payload={}) {
@@ -6775,7 +6839,7 @@
             <label class="field"><span>Expiry date and time (optional)</span><input name="expires_at" type="datetime-local"></label>
             <label class="field full"><span>Deployment URL or hostname (optional)</span><input name="authorized_domain" inputmode="url" autocomplete="url" placeholder="https://username.github.io/repository/"><small>Leave blank for project-bound deployment without host locking. A GitHub Pages URL is accepted; a github.com repository URL is not a deployed website.</small></label>
             <label class="field full"><span>User account email domain (optional)</span><input name="email_domain" placeholder="school.edu.gh"><small>Leave blank to use a safe non-deliverable .invalid placeholder.</small></label>
-            <label class="field full"><span>School logo</span><input id="schoolPackageLogo" name="school_logo" type="file" accept="image/png" required><small>PNG only. Maximum 5 MB. Use a square image of at least 256 by 256 pixels.</small></label>
+            <label class="field full"><span>School logo</span><input id="schoolPackageLogo" name="school_logo" type="file" accept="image/png" required><small>PNG source up to 5 MB. It is normalized automatically to a compute/storage-safe PNG of at most 1 MB while preserving a square print-ready image.</small></label>
             <div class="package-logo-preview full"><img id="schoolPackageLogoPreview" src="${CONFIG.logoPath}" alt="Package logo preview"><div><strong id="schoolPackageNamePreview">New school package</strong><span>The official package is generated and signed on the server.</span></div></div>
             <label class="field full"><span>GitHub repository name</span><input name="repository_name" maxlength="80" placeholder="example-academy-report-card" required></label>
             <label class="field full"><span>Supabase Project URL</span><input name="supabase_url" placeholder="https://your-project.supabase.co" required></label>
@@ -6946,8 +7010,15 @@
         authorization=await uploadAttempt();
       }
       button.textContent="Activating";setSync("pending","Activating validated template");
-      await invokePlatformPackageManager("activate_template_upload",{storage_path:authorization.storage_path,filename:file.name,client_validation_receipt:receipt});
-      state.platformPackageConsole=null;toast("Protected template installed","The complete browser checksum scan and compute-safe server validation passed.");await renderGithubNavigator(state.viewToken,true);setSync("online","Synced")
+      let reconciledStatus=null;
+      try{await invokePlatformPackageManager("activate_template_upload",{storage_path:authorization.storage_path,filename:file.name,client_validation_receipt:receipt})}
+      catch(activationError){
+        const message=activationError?.message||String(activationError||"");
+        if(!/compute resources|status code 546|\b546\b|failed to fetch|network|timeout/i.test(message))throw activationError;
+        button.textContent="Confirming";setSync("pending","Confirming active template SHA after interrupted response");
+        reconciledStatus=await reconcileProtectedTemplateActivation(receipt);if(!reconciledStatus)throw activationError;
+      }
+      state.platformPackageConsole=reconciledStatus;toast("Protected template installed",reconciledStatus?"The server commit was confirmed by the active template SHA after an interrupted activation response.":"The complete browser checksum scan and compute-safe server validation passed.");await renderGithubNavigator(state.viewToken,true);setSync("online","Synced")
     }
     catch(error){toast("Template not installed",friendlyError(error),"error",9000);setSync("pending","Retry required")}
     finally{button.disabled=false;button.textContent="Install or replace template"}
@@ -6973,10 +7044,10 @@
       const windowsSummary=includeWindows?` A branded Windows installer build kit will be included for product ${values.windows_product_id} on local port ${values.windows_runtime_port}.`:" The confirmed universal Windows w1 installers will still be included.";
       const deploymentSummary=String(values.authorized_domain||"").trim()?` with host restriction ${String(values.authorized_domain).trim()}`:" without host restriction; the package remains bound to its Supabase project, installation, tenant, and central licence authority";
       const confirmed=await confirmAction("Confirm licensed package entitlement",`${selectedPlan.name} revision ${selectedPlan.revision||1} will be issued to ${values.school_name}${deploymentSummary}. Supabase project: ${String(values.supabase_url).replace(/^https?:\/\//,"").split(".")[0]}. The generated school cannot distribute other packages.${androidSummary}${windowsSummary}`,"Generate signed package");if(!confirmed){setSync("online","Synced");return}
-      progressText.textContent="Reading and validating school logo";const logo_base64=await readFileAsDataUrl(logoFile,PACKAGE_LOGO_MAX_BYTES,PACKAGE_LOGO_TYPES);
-      progressText.textContent="Generating and signing package on the server";
+      progressText.textContent="Normalizing school logo for Free-plan package headroom";const normalizedLogo=await normalisePackageSchoolLogo(logoFile),logo_base64=await readFileAsDataUrl(normalizedLogo,PACKAGE_LOGO_MAX_BYTES,PACKAGE_LOGO_TYPES);
+      progressText.textContent="Generating and signing compute-safe package on the server";
       if(!state.packageGenerationKey)state.packageGenerationKey=crypto.randomUUID();
-      const data=await invokePlatformPackageManager("generate",{...values,include_android_build_kit:includeAndroid,include_windows_build_kit:includeWindows,license_plan_id:selectedPlan.id,license_plan_revision:selectedPlan.revision,idempotency_key:state.packageGenerationKey,logo_base64,logo_mime:logoFile.type,expires_at:values.expires_at?new Date(values.expires_at).toISOString():""});
+      const data=await invokePlatformPackageManager("generate",{...values,include_android_build_kit:includeAndroid,include_windows_build_kit:includeWindows,license_plan_id:selectedPlan.id,license_plan_revision:selectedPlan.revision,idempotency_key:state.packageGenerationKey,logo_base64,logo_mime:"image/png",expires_at:values.expires_at?new Date(values.expires_at).toISOString():""});
       if(!data.signed_url)throw new Error("The package was created but no download authorization was returned.");
       state.packageGenerationKey="";
       const link=document.createElement("a");link.href=data.signed_url;link.rel="noopener";link.click();

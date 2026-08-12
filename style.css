@@ -957,3 +957,26 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .school-logo-settings-actions input[type=file]{width:100%;max-width:100%}
 .school-logo-settings-actions .button-row{margin-top:1px;flex-wrap:wrap}
 @media(max-width:650px){.school-logo-settings-grid{grid-template-columns:1fr}.school-logo-settings-preview{width:100%;min-height:138px}.school-logo-settings-preview img{width:118px;height:118px}}
+
+/* r30 bounded history/list scrolling + stable sticky headings */
+.history-scroll{
+  max-height:clamp(300px,48vh,460px);
+  overflow-y:auto;
+  overflow-x:auto;
+  scrollbar-gutter:stable both-edges;
+  overscroll-behavior:contain;
+}
+.history-scroll thead th,
+.backup-history thead th{
+  position:sticky;
+  top:0;
+  z-index:3;
+  background:var(--surface,#fff);
+  box-shadow:0 1px 0 var(--line);
+}
+.class-progress-scroll{max-height:clamp(320px,50vh,480px)}
+.correction-history-scroll,.recovery-history-scroll,.restore-history-scroll{max-height:clamp(300px,46vh,430px)}
+.backup-history{max-height:clamp(320px,50vh,460px)}
+@media(max-width:760px){
+  .history-scroll,.backup-history,.class-progress-scroll,.correction-history-scroll,.recovery-history-scroll,.restore-history-scroll{max-height:55vh}
+}
