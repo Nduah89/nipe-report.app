@@ -5,9 +5,9 @@ function stableScopeHash(value){
 }
 const CACHE_SCOPE_KEY=stableScopeHash(self.registration?.scope||self.location.href);
 const CACHE_FAMILY=`rce-report-card-${CACHE_SCOPE_KEY}-`;
-const CACHE_NAME=`${CACHE_FAMILY}v7-4-0-final-r1-production-stability-r15-prospectus-entitlement-navigation-r16-prospectus-one-page-report-header-r17-universal-school-logo-official-header-r18-logo-entitlement-compatibility-r19-dynamic-report-header-logo-propagation-r20-transparent-document-logo-headers-r21-staff-id-photo-cover-r23-pdfjs-eval-hardening-final-lts-r25-empty-master-uuid-null-guard-r26-restore-zip-mime-fail-closed-recovery-r28-free-plan-compute-safe-package-generation-r30-bounded-history-scroll-safe-reset`;
+const CACHE_NAME=`${CACHE_FAMILY}v7-4-0-final-r1-production-stability-r15-prospectus-entitlement-navigation-r16-prospectus-one-page-report-header-r17-universal-school-logo-official-header-r18-logo-entitlement-compatibility-r19-dynamic-report-header-logo-propagation-r20-transparent-document-logo-headers-r21-staff-id-photo-cover-r23-pdfjs-eval-hardening-final-lts-r25-empty-master-uuid-null-guard-r26-restore-zip-mime-fail-closed-recovery-r28-free-plan-compute-safe-package-generation-r30-bounded-history-scroll-safe-reset-r32-dedicated-plan-upgrade-navigation`;
 const STATIC_ASSETS=[
-  "./","index.html","style.css","app.js","config.js","manifest.webmanifest",
+  "./","index.html","style.css","app.js","plan-upgrade-r32.js","config.js","manifest.webmanifest",
   "assets/school-logo.png","assets/rce-master-logo.png","assets/rce-master-logo-192.png","assets/rce-master-logo-512.png","assets/rce-master-logo-maskable-512.png","assets/favicon-32.png","assets/approved-terminal-report-template.png","assets/approved-terminal-report-template.pdf",
   "assets/vendor/supabase-2.110.5.js","assets/vendor/qrcode-1.0.0.min.js",
   "assets/vendor/pdfjs-3.11.174.min.js","assets/vendor/pdfjs-3.11.174.worker.min.js",
@@ -34,10 +34,10 @@ self.addEventListener("fetch",event=>{
     return;
   }
   if(url.origin!==self.location.origin){event.respondWith(fetch(request));return;}
-  if(url.pathname.endsWith("/config.js")){
+  if(url.pathname.endsWith("/plan-upgrade-r32.js")||url.pathname.endsWith("/config.js")){
     event.respondWith((async()=>{
       try{const response=await fetch(request,{cache:"no-store"});await cachePut(request,response);return response;}
-      catch{return await cacheMatch(request)||new Response('window.RCE_CONFIG=Object.freeze({supabaseUrl:"YOUR_SUPABASE_URL",supabaseAnonKey:"YOUR_SUPABASE_PUBLISHABLE_KEY"});',{status:503,headers:{"Content-Type":"application/javascript","Cache-Control":"no-store"}});}
+      catch{return await cacheMatch(request)||new Response("Required runtime asset is unavailable.",{status:503,headers:{"Content-Type":"text/plain; charset=utf-8","Cache-Control":"no-store"}});}
     })());
     return;
   }
