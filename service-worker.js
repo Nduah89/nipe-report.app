@@ -4,8 +4,9 @@ function stableScopeHash(value){
   return (hash>>>0).toString(36);
 }
 const CACHE_SCOPE_KEY=stableScopeHash(self.registration?.scope||self.location.href);
+// Keep the historical family name so r36 evicts all earlier installation caches safely.
 const CACHE_FAMILY=`rce-report-card-${CACHE_SCOPE_KEY}-`;
-const CACHE_NAME=`${CACHE_FAMILY}v7-4-0-final-r1-production-stability-r15-prospectus-entitlement-navigation-r16-prospectus-one-page-report-header-r17-universal-school-logo-official-header-r18-logo-entitlement-compatibility-r19-dynamic-report-header-logo-propagation-r20-transparent-document-logo-headers-r21-staff-id-photo-cover-r23-pdfjs-eval-hardening-final-lts-r25-empty-master-uuid-null-guard-r26-restore-zip-mime-fail-closed-recovery-r28-free-plan-compute-safe-package-generation-r30-bounded-history-scroll-safe-reset-r32-dedicated-plan-upgrade-navigation`;
+const CACHE_NAME=`${CACHE_FAMILY}v7-4-0-final-r1-production-stability-r15-prospectus-entitlement-navigation-r16-prospectus-one-page-report-header-r17-universal-school-logo-official-header-r18-logo-entitlement-compatibility-r19-dynamic-report-header-logo-propagation-r20-transparent-document-logo-headers-r21-staff-id-photo-cover-r23-pdfjs-eval-hardening-final-lts-r25-empty-master-uuid-null-guard-r26-restore-zip-mime-fail-closed-recovery-r28-free-plan-compute-safe-package-generation-r30-bounded-history-scroll-safe-reset-r32-dedicated-plan-upgrade-navigation-r36-edusentia-brand`;
 const STATIC_ASSETS=[
   "./","index.html","style.css","app.js","plan-upgrade-r32.js","config.js","manifest.webmanifest",
   "assets/school-logo.png","assets/rce-master-logo.png","assets/rce-master-logo-192.png","assets/rce-master-logo-512.png","assets/rce-master-logo-maskable-512.png","assets/favicon-32.png","assets/approved-terminal-report-template.png","assets/approved-terminal-report-template.pdf",
@@ -45,7 +46,7 @@ self.addEventListener("fetch",event=>{
     const fallback=new URL("index.html",self.registration.scope).href;
     event.respondWith((async()=>{
       try{const response=await fetch(request);await cachePut(fallback,response);return response;}
-      catch{return await cacheMatch(fallback)||new Response("Report Card Enterprise is offline and has not completed its first installation.",{status:503,headers:{"Content-Type":"text/plain; charset=utf-8","Cache-Control":"no-store"}});}
+      catch{return await cacheMatch(fallback)||new Response("Edusentia is offline and this school installation has not completed its first installation.",{status:503,headers:{"Content-Type":"text/plain; charset=utf-8","Cache-Control":"no-store"}});}
     })());
     return;
   }
@@ -57,5 +58,6 @@ self.addEventListener("fetch",event=>{
     return response;
   })());
 });
+// Preserve historical sync tags as an internal compatibility contract.
 self.addEventListener("sync",event=>{if(event.tag==="rce-outbox"||event.tag==="nis-outbox")event.waitUntil(self.clients.matchAll({type:"window",includeUncontrolled:true}).then(clients=>clients.forEach(client=>client.postMessage({type:"FLUSH_OUTBOX"}))));});
 self.addEventListener("message",event=>{if(event.data?.type==="SKIP_WAITING")self.skipWaiting();});
