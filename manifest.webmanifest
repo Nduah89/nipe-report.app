@@ -5,7 +5,7 @@
   "start_url": "./",
   "display": "standalone",
   "background_color": "#f3f6fa",
-  "theme_color": "#082d70",
+  "theme_color": "#072863",
   "icons": [
     {
       "src": "assets/school-logo.png",
@@ -20,5 +20,5 @@
       "purpose": "any maskable"
     }
   ],
-  "version": "7.4.0-r36"
+  "version": "7.4.0-r37"
 }
