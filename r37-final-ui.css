@@ -1,5 +1,5 @@
-/* Edusentia v7.4.0 r37 final unified login visual identity.
-   Presentation only: authentication logic, element IDs, form semantics and licence bindings remain unchanged. */
+/* Edusentia v7.4.0 r37 final login visual identity v6.
+   DOM-backed hero image: authentication logic, element IDs, form semantics and licence bindings remain unchanged. */
 .auth-view{
   position:relative;
   isolation:isolate;
@@ -8,25 +8,33 @@
   padding:clamp(28px,4vw,64px);
   display:grid;
   place-items:center;
-  background-color:#041b47;
-  background-image:
-    linear-gradient(90deg,rgba(2,17,48,.05) 0%,rgba(2,17,48,.03) 48%,rgba(2,17,48,.18) 100%),
-    url("assets/edusentia-login-hero-r37.webp");
-  background-size:cover,cover;
-  background-position:center center,center center;
-  background-repeat:no-repeat;
+  background:#041b47;
+}
+.auth-hero-image{
+  position:absolute;
+  inset:0;
+  z-index:0;
+  display:block;
+  width:100%;
+  height:100%;
+  max-width:none;
+  object-fit:cover;
+  object-position:center center;
+  pointer-events:none;
+  user-select:none;
+  background:#041b47 url("assets/edusentia-login-background-r37.svg") center/cover no-repeat;
 }
 .auth-view::before{
   content:"";
   position:absolute;
   inset:0;
-  z-index:-1;
+  z-index:1;
   pointer-events:none;
-  background:
-    radial-gradient(circle at 69% 46%,rgba(52,132,232,.12),transparent 32%),
-    linear-gradient(180deg,rgba(1,13,38,.01),rgba(1,13,38,.12));
+  background:linear-gradient(90deg,rgba(2,17,48,.03) 0%,rgba(2,17,48,.015) 47%,rgba(2,17,48,.13) 100%);
 }
 .auth-view .auth-card{
+  position:relative;
+  z-index:2;
   width:min(520px,calc(100vw - 48px));
   min-height:min(680px,calc(100vh - 64px));
   margin:0;
@@ -42,136 +50,38 @@
   -webkit-backdrop-filter:blur(16px) saturate(118%);
   backdrop-filter:blur(16px) saturate(118%);
 }
-#authView .brand-lockup{
-  flex-direction:column;
-  justify-content:center;
-  gap:8px;
-  margin:0 0 20px;
-  text-align:center;
-}
-#authView .brand-lockup>img{
-  width:96px;
-  height:96px;
-  object-fit:contain;
-  filter:drop-shadow(0 8px 18px rgba(8,45,112,.14));
-}
+#authView .brand-lockup{flex-direction:column;justify-content:center;gap:8px;margin:0 0 20px;text-align:center}
+#authView .brand-lockup>img{width:96px;height:96px;object-fit:contain;filter:drop-shadow(0 8px 18px rgba(8,45,112,.14))}
 #authView .brand-lockup>div{min-width:0}
-#authView .brand-lockup h1{
-  margin:0 0 4px;
-  color:#082d70;
-  font-size:clamp(25px,2vw,31px);
-  line-height:1.12;
-  letter-spacing:.02em;
-}
-#authView .brand-lockup p{
-  margin:0;
-  color:#a87308;
-  font-size:11px;
-  font-weight:850;
-  letter-spacing:.14em;
-  text-transform:uppercase;
-}
-#authView .auth-card::before{
-  content:"";
-  display:block;
-  width:78%;
-  height:1px;
-  margin:0 auto 22px;
-  background:linear-gradient(90deg,transparent,#d8a22d,transparent);
-}
+#authView .brand-lockup h1{margin:0 0 4px;color:#082d70;font-size:clamp(25px,2vw,31px);line-height:1.12;letter-spacing:.02em}
+#authView .brand-lockup p{margin:0;color:#a87308;font-size:11px;font-weight:850;letter-spacing:.14em;text-transform:uppercase}
+#authView .auth-card::before{content:"";display:block;width:78%;height:1px;margin:0 auto 22px;background:linear-gradient(90deg,transparent,#d8a22d,transparent)}
 #authView #loginForm{gap:16px}
-#authView #loginForm::before{
-  content:"Welcome Back";
-  display:block;
-  grid-column:1/-1;
-  margin:0 0 -3px;
-  color:#082d70;
-  font-size:clamp(29px,2.2vw,36px);
-  line-height:1.15;
-  font-weight:850;
-  letter-spacing:-.025em;
-  text-align:center;
-}
-#authView #loginForm .field:first-of-type::before{
-  content:"Sign in to continue to your account";
-  display:block;
-  margin:-5px 0 12px;
-  color:#65728a;
-  font-size:14px;
-  font-weight:500;
-  text-align:center;
-}
+#authView #loginForm::before{content:"Welcome Back";display:block;grid-column:1/-1;margin:0 0 -3px;color:#082d70;font-size:clamp(29px,2.2vw,36px);line-height:1.15;font-weight:850;letter-spacing:-.025em;text-align:center}
+#authView #loginForm .field:first-of-type::before{content:"Sign in to continue to your account";display:block;margin:-5px 0 12px;color:#65728a;font-size:14px;font-weight:500;text-align:center}
 .auth-view .field>span{color:#253858;font-weight:750}
-.auth-view input,.auth-view .password-wrap{
-  min-height:50px;
-  border-color:#cbd6e6;
-  background:#fff;
-  box-shadow:0 1px 0 rgba(8,45,112,.025);
-}
-.auth-view input:focus,.auth-view .password-wrap:focus-within{
-  border-color:var(--blue);
-  box-shadow:0 0 0 3px rgba(13,94,200,.14);
-}
-.auth-view .button.primary{
-  min-height:52px;
-  margin-top:3px;
-  border-radius:10px;
-  background:linear-gradient(135deg,#0a459a,#1269d3);
-  box-shadow:0 12px 28px rgba(13,94,200,.26);
-}
-#authView .auth-card::after{
-  content:"Your trusted partner in academic excellence";
-  display:block;
-  margin-top:22px;
-  color:#7a8799;
-  font-size:11px;
-  font-weight:650;
-  letter-spacing:.02em;
-  text-align:center;
-}
-#mfaView .auth-card{
-  width:min(470px,calc(100vw - 48px));
-  min-height:auto;
-  transform:translateX(clamp(190px,16vw,270px));
-}
+.auth-view input,.auth-view .password-wrap{min-height:50px;border-color:#cbd6e6;background:#fff;box-shadow:0 1px 0 rgba(8,45,112,.025)}
+.auth-view input:focus,.auth-view .password-wrap:focus-within{border-color:var(--blue);box-shadow:0 0 0 3px rgba(13,94,200,.14)}
+.auth-view .button.primary{min-height:52px;margin-top:3px;border-radius:10px;background:linear-gradient(135deg,#0a459a,#1269d3);box-shadow:0 12px 28px rgba(13,94,200,.26)}
+#authView .auth-card::after{content:"Your trusted partner in academic excellence";display:block;margin-top:22px;color:#7a8799;font-size:11px;font-weight:650;letter-spacing:.02em;text-align:center}
+#mfaView .auth-card{width:min(470px,calc(100vw - 48px));min-height:auto;transform:translateX(clamp(190px,16vw,270px))}
 #mfaView .brand-lockup{margin-bottom:24px}
-@media(max-width:1180px){
-  .auth-view .auth-card,#mfaView .auth-card{transform:translateX(16vw)}
-}
+@media(max-width:1180px){.auth-view .auth-card,#mfaView .auth-card{transform:translateX(16vw)}}
 @media(max-width:980px){
-  .auth-view{
-    padding:28px 22px;
-    background-image:
-      linear-gradient(180deg,rgba(3,21,54,.38),rgba(3,21,54,.66)),
-      url("assets/edusentia-login-hero-r37.webp");
-    background-position:center center,58% center;
-  }
+  .auth-view{padding:28px 22px}
+  .auth-hero-image{object-position:58% center}
+  .auth-view::before{background:linear-gradient(180deg,rgba(3,21,54,.38),rgba(3,21,54,.66))}
   .auth-view .auth-card,#mfaView .auth-card{transform:none}
 }
 @media(max-width:680px){
-  .auth-view{
-    padding:18px 14px;
-    background-image:
-      linear-gradient(180deg,rgba(3,21,54,.58),rgba(3,21,54,.78)),
-      url("assets/edusentia-login-hero-r37.webp");
-    background-position:center center,60% center;
-  }
-  .auth-view .auth-card{
-    width:min(100%,520px);
-    min-height:auto;
-    padding:28px 22px;
-    border-radius:20px;
-  }
+  .auth-view{padding:18px 14px}
+  .auth-hero-image{object-position:60% center}
+  .auth-view::before{background:linear-gradient(180deg,rgba(3,21,54,.58),rgba(3,21,54,.78))}
+  .auth-view .auth-card{width:min(100%,520px);min-height:auto;padding:28px 22px;border-radius:20px}
   #authView .brand-lockup{gap:7px;margin-bottom:17px}
   #authView .brand-lockup>img{width:76px;height:76px}
   #authView .brand-lockup h1{font-size:24px}
   #authView #loginForm::before{font-size:29px}
 }
-@media(max-width:420px){
-  .auth-view{padding:12px 10px}
-  .auth-view .auth-card{padding:24px 18px;border-radius:18px}
-  #authView .brand-lockup>img{width:68px;height:68px}
-}
-@media(prefers-reduced-motion:reduce){
-  .auth-view .button,.auth-view .icon-button{transition:none}
-}
+@media(max-width:420px){.auth-view{padding:12px 10px}.auth-view .auth-card{padding:24px 18px;border-radius:18px}#authView .brand-lockup>img{width:68px;height:68px}}
+@media(prefers-reduced-motion:reduce){.auth-view .button,.auth-view .icon-button{transition:none}}
