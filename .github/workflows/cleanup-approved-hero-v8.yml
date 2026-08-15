@@ -1,0 +1,27 @@
+name: Cleanup approved r37 v8 deployment helpers
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/cleanup-approved-hero-v8.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Remove one-shot deployment helpers
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -f .github/workflows/promote-approved-hero-v8.yml .github/workflows/apply-approved-hero-v8-runtime.yml .github/workflows/cleanup-approved-hero-v8.yml
+          git commit -m "Remove one-shot r37 v8 deployment helpers"
+          git push
