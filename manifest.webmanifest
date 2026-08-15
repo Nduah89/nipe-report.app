@@ -1,7 +1,7 @@
 {
-  "name": "Nipe International School Report Card System",
+  "name": "Nipe International School | Edusentia School",
   "short_name": "Nipe Reports",
-  "description": "Student report card and academic records system for Nipe International School",
+  "description": "Academic records, reporting and school operations for Nipe International School, powered by Edusentia",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#f3f6fa",
@@ -19,5 +19,6 @@
       "type": "image/png",
       "purpose": "any maskable"
     }
-  ]
+  ],
+  "version": "7.4.0-r36"
 }
