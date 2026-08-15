@@ -1,9 +1,13 @@
 # Edusentia r37 Login Hero Final Acceptance
 
-Status: photographic campus hero asset approved for live production.
+Status: final v7 photographic campus hero polish deployed to live production; browser visual acceptance remains pending.
 
-Approved hero Git blob SHA: `4c8162d4e10a4508e2897a969824fc685a1fb2e0`
+Final hero Git blob SHA: `d99537c9b9a044085d72d69b9d2751e662b06e63`
 
-The login hero uses the existing DOM-backed image layer. Nipe school identity, Powered by Edusentia branding, authentication logic, MFA, licence bindings and academic data remain unchanged.
+Hero size: `34116` bytes (1280×720 WebP).
+
+Final login CSS blob SHA: `ae197b1cdef75b7eec937dc43d4d96c7e6afa344`
+
+The login hero uses the established DOM-backed image layer. The v7 polish removes the abstract SVG fallback from the active hero CSS, improves card proportions and responsive positioning, and preserves Nipe school identity, Powered by Edusentia branding, authentication logic, MFA, licence bindings and academic data.
 
 Visual acceptance remains conditional on final browser screenshot verification after deployment.
