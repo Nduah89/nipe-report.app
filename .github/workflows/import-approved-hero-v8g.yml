@@ -1,0 +1,36 @@
+name: Import approved r37 hero v8g
+
+on:
+  push:
+    branches:
+      - fix/r37-approved-login-hero-v8g
+    paths:
+      - ".github/workflows/import-approved-hero-v8g.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Import exact approved hero from Master staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://raw.githubusercontent.com/Nduah89/report-card-enterprise.app/fix/r37-approved-login-hero-v8g/assets/edusentia-login-hero-r37.webp" -o /tmp/hero.webp
+          echo "7389a2e438aa7c975c691817b5cbfd5f61280da19c83c37d076334586b093b50  /tmp/hero.webp" | sha256sum -c -
+          test "$(stat -c%s /tmp/hero.webp)" = "74634"
+          cp /tmp/hero.webp assets/edusentia-login-hero-r37.webp
+      - name: Commit verified hero
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/edusentia-login-hero-r37.webp
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Import approved full-HD r37 login hero v8"
+          git push
