@@ -1,17 +1,16 @@
-/* Edusentia v7.4.0 r37 final simplified login visual v9.
-   The approved artwork is decorative. The real authentication card masks the artwork's
-   embedded mock form on desktop; responsive layouts shift/fade the artwork so only
-   real DOM controls are actionable. Authentication and licence semantics are unchanged. */
-.auth-view{
-  position:relative;isolation:isolate;overflow:hidden;background:#f5f8fe;
-}
+/* Edusentia v7.4.0 r37 final simplified login visual v10 clarity.
+   Production visual source: approved 1672x941 Edusentia academic login artwork.
+   High-fidelity background is rendered without blur, soft-focus filters or opacity reduction.
+   The real authentication card remains the only interactive login UI. Licence semantics are unchanged. */
+.auth-view{position:relative;isolation:isolate;overflow:hidden;background:#f5f8fe}
 .auth-view .auth-hero-image{
   position:absolute;inset:0;z-index:0;display:block;width:100%;height:100%;max-width:none;
-  object-fit:cover;object-position:center center;pointer-events:none;user-select:none;background:#f5f8fe;
+  object-fit:cover;object-position:center center;image-rendering:auto;opacity:1;filter:none;
+  pointer-events:none;user-select:none;background:#f5f8fe
 }
 .auth-view::before{
   content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
-  background:linear-gradient(90deg,rgba(255,255,255,.015),rgba(248,251,255,.015) 50%,rgba(246,250,255,.08));
+  background:linear-gradient(90deg,rgba(255,255,255,0),rgba(248,251,255,0) 50%,rgba(246,250,255,.025))
 }
 .auth-view .auth-card{
   position:relative;z-index:2;width:min(630px,calc(100vw - 48px));min-height:min(700px,calc(100vh - 58px));
@@ -19,7 +18,7 @@
   transform:translateX(clamp(255px,24.5vw,475px));background:rgba(255,255,255,.988);
   border:1px solid rgba(255,255,255,.94);border-radius:26px;
   box-shadow:0 40px 120px rgba(8,45,112,.22),0 0 0 1px rgba(8,45,112,.045);
-  -webkit-backdrop-filter:blur(12px) saturate(112%);backdrop-filter:blur(12px) saturate(112%);
+  -webkit-backdrop-filter:blur(12px) saturate(112%);backdrop-filter:blur(12px) saturate(112%)
 }
 #authView .brand-lockup{flex-direction:column;justify-content:center;gap:9px;text-align:center;margin-bottom:22px}
 #authView .brand-lockup>img{width:96px;height:96px;object-fit:contain;filter:drop-shadow(0 9px 20px rgba(8,45,112,.12))}
@@ -34,19 +33,16 @@
 @media(max-width:1280px){.auth-view .auth-card{transform:translateX(22vw)}}
 @media(max-width:1040px){
   .auth-view{padding:28px 22px}
-  .auth-view .auth-hero-image{object-position:left center;opacity:.26;filter:saturate(.82) contrast(.96)}
-  .auth-view::before{background:rgba(247,250,255,.76)}
+  .auth-view .auth-hero-image{object-position:left center;opacity:1;filter:none}
+  .auth-view::before{background:rgba(247,250,255,.12)}
   .auth-view .auth-card{transform:none}
 }
 @media(max-width:680px){
   .auth-view{padding:18px 14px}
-  .auth-view .auth-hero-image{object-position:left center;opacity:.18;filter:saturate(.70) contrast(.94)}
-  .auth-view::before{background:rgba(250,252,255,.88)}
+  .auth-view .auth-hero-image{object-position:left center;opacity:1;filter:none}
+  .auth-view::before{background:rgba(250,252,255,.18)}
   .auth-view .auth-card{width:min(100%,520px);min-height:auto;padding:30px 22px;border-radius:20px}
-  #authView .brand-lockup{gap:7px;margin-bottom:18px}
   #authView .brand-lockup>img{width:78px;height:78px}
-  #authView .brand-lockup h1{font-size:24px}
-  #authView #loginForm::before{font-size:29px}
 }
 @media(max-width:420px){
   .auth-view{padding:12px 10px}.auth-view .auth-card{padding:24px 18px;border-radius:18px}
