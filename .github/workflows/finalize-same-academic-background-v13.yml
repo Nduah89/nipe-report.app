@@ -1,0 +1,67 @@
+name: Finalize same Edusentia academic background v13
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/finalize-same-academic-background-v13.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify Nipe preserved academic source and choose the safest production asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show 6c7720ae1cc0df9b5ec0ea4466aed6b781c12179:assets/edusentia-login-background-final.webp > /tmp/source.webp
+          test "$(git hash-object /tmp/source.webp)" = "6f0fa56f3a00e9a4e82d2a7f40591c0c5254e9db"
+          test "$(stat -c%s /tmp/source.webp)" = "10712"
+          test "$(head -c 4 /tmp/source.webp)" = "RIFF"
+          test "$(dd if=/tmp/source.webp bs=1 skip=8 count=4 status=none)" = "WEBP"
+
+          keep_v12=0
+          if grep -q 'r37-final-ui-12-same-background-sharpened' index.html && [ -f assets/edusentia-login-background-final.webp ]; then
+            current_size="$(stat -c%s assets/edusentia-login-background-final.webp)"
+            if [ "$current_size" -ge 30000 ] && [ "$(head -c 4 assets/edusentia-login-background-final.webp)" = "RIFF" ] && [ "$(dd if=assets/edusentia-login-background-final.webp bs=1 skip=8 count=4 status=none)" = "WEBP" ]; then
+              keep_v12=1
+            fi
+          fi
+
+          if [ "$keep_v12" = "1" ]; then
+            echo "Keeping validated sharpened v12 academic artwork."
+          else
+            cp /tmp/source.webp assets/edusentia-login-background-final.webp
+            sed -i -e 's/r37-final-ui-11-asset-repair/r37-final-ui-13-exact-academic-source/g' -e 's/r37-final-ui-12-same-background-sharpened/r37-final-ui-13-exact-academic-source/g' index.html service-worker.js
+            grep -q 'r37-final-ui-13-exact-academic-source' index.html
+            grep -q 'r37-final-ui-13-exact-academic-source' service-worker.js
+            echo "Restored exact preserved academic source and advanced cache to v13."
+          fi
+
+      - name: Remove temporary visual workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/promote-same-background-v12.yml
+          rm -f .github/workflows/finalize-same-academic-background-v13.yml
+
+      - name: Commit final clean school production state
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Finalize same Edusentia academic login background"
+          git push
