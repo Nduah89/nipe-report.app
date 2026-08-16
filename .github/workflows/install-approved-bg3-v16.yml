@@ -1,0 +1,80 @@
+name: Install approved Nipe login background v16
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/install-approved-bg3-v16.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  install:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch and verify approved background 3
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 --retry-delay 2 \
+            https://raw.githubusercontent.com/Nduah89/report-card-enterprise.app/cef5ce02fb780a68a3702c8756a9dd764288c576/assets/approved-login-background-3.webp \
+            -o /tmp/bg3.webp
+
+          echo "10d58fdc464ceba48302f5c7880b0603d5656cab428d3ea145303c83bb572176  /tmp/bg3.webp" | sha256sum -c -
+          test "$(stat -c%s /tmp/bg3.webp)" = "42794"
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct
+          b = Path('/tmp/bg3.webp').read_bytes()
+          assert b[:4] == b'RIFF', b[:4]
+          assert b[8:12] == b'WEBP', b[8:12]
+          pos = 12
+          dims = None
+          while pos + 8 <= len(b):
+              kind = b[pos:pos+4]
+              size = struct.unpack_from('<I', b, pos+4)[0]
+              data = b[pos+8:pos+8+size]
+              if kind == b'VP8 ':
+                  assert data[3:6] == b'\x9d\x01\x2a'
+                  dims = (struct.unpack_from('<H', data, 6)[0] & 0x3fff,
+                          struct.unpack_from('<H', data, 8)[0] & 0x3fff)
+                  break
+              if kind == b'VP8X':
+                  dims = (1 + int.from_bytes(data[4:7], 'little'),
+                          1 + int.from_bytes(data[7:10], 'little'))
+                  break
+              pos += 8 + size + (size & 1)
+          assert dims == (1672, 941), dims
+          print('Verified Nipe approved background 3 at 1672x941')
+          PY
+
+      - name: Install approved Nipe background and invalidate old visual cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp /tmp/bg3.webp assets/edusentia-login-background-final.webp
+          cp /tmp/bg3.webp assets/approved-login-background-3.webp
+
+          sed -i 's/r37-final-ui-11-asset-repair/r37-final-ui-16-approved-bg3/g' index.html
+          sed -i 's/r37-edusentia-final-ui-11-asset-repair/r37-edusentia-final-ui-16-approved-bg3/g' service-worker.js
+          grep -q 'r37-final-ui-16-approved-bg3' index.html
+          grep -q 'r37-edusentia-final-ui-16-approved-bg3' service-worker.js
+
+          rm -f .github/workflows/install-approved-bg3-v16.yml
+
+      - name: Commit verified Nipe visual release
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Install approved Nipe login background"
+          git push
