@@ -1,0 +1,47 @@
+/* Edusentia v7.4.0 r37 final simplified login visual v9.
+   The approved artwork is decorative. The real authentication card masks the artwork's
+   embedded mock form on desktop; responsive layouts shift/fade the artwork so only
+   real DOM controls are actionable. Authentication and licence semantics are unchanged. */
+.auth-view{
+  position:relative;isolation:isolate;overflow:hidden;background:#f5f8fe;
+}
+.auth-view .auth-hero-image{
+  position:absolute;inset:0;z-index:0;display:block;width:100%;height:100%;max-width:none;
+  object-fit:cover;object-position:center center;pointer-events:none;user-select:none;background:#f5f8fe;
+}
+.auth-view::before{
+  content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
+  background:linear-gradient(90deg,rgba(255,255,255,.015),rgba(248,251,255,.015) 50%,rgba(246,250,255,.08));
+}
+.auth-view .auth-card{
+  position:relative;z-index:2;width:min(630px,calc(100vw - 48px));min-height:min(700px,calc(100vh - 58px));
+  margin:0;padding:clamp(38px,3.5vw,54px);display:flex;flex-direction:column;justify-content:center;
+  transform:translateX(clamp(255px,24.5vw,475px));background:rgba(255,255,255,.988);
+  border:1px solid rgba(255,255,255,.94);border-radius:26px;
+  box-shadow:0 40px 120px rgba(8,45,112,.22),0 0 0 1px rgba(8,45,112,.045);
+  -webkit-backdrop-filter:blur(12px) saturate(112%);backdrop-filter:blur(12px) saturate(112%);
+}
+#authView .brand-lockup{justify-content:center;text-align:center;margin-bottom:26px}
+#authView .brand-lockup>img{width:96px;height:96px;object-fit:contain}
+#authView .brand-lockup>div{min-width:0}
+#authView .brand-lockup small{justify-content:center}
+#mfaView .auth-card{width:min(570px,calc(100vw - 48px));min-height:auto}
+@media(max-width:1280px){.auth-view .auth-card{transform:translateX(22vw)}}
+@media(max-width:1040px){
+  .auth-view{padding:28px 22px}
+  .auth-view .auth-hero-image{object-position:left center;opacity:.26;filter:saturate(.82) contrast(.96)}
+  .auth-view::before{background:rgba(247,250,255,.76)}
+  .auth-view .auth-card{transform:none}
+}
+@media(max-width:680px){
+  .auth-view{padding:18px 14px}
+  .auth-view .auth-hero-image{object-position:left center;opacity:.18;filter:saturate(.70) contrast(.94)}
+  .auth-view::before{background:rgba(250,252,255,.88)}
+  .auth-view .auth-card{width:min(100%,520px);min-height:auto;padding:30px 22px;border-radius:20px}
+  #authView .brand-lockup>img{width:78px;height:78px}
+}
+@media(max-width:420px){
+  .auth-view{padding:12px 10px}.auth-view .auth-card{padding:24px 18px;border-radius:18px}
+  #authView .brand-lockup>img{width:68px;height:68px}
+}
+@media(prefers-reduced-motion:reduce){.auth-view .button,.auth-view .icon-button{transition:none}}
