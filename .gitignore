@@ -1,0 +1,48 @@
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Dependency/build output
+node_modules/
+dist/
+build/
+coverage/
+.cache/
+.tmp/
+tmp/
+temp/
+
+# Logs and editor/OS noise
+*.log
+*.tmp
+*.temp
+*.bak
+*.orig
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Local release/build artifacts
+*.zip
+*.tgz
+*.tar.gz
+*.apk
+*.aab
+*.jks
+*.keystore
+
+# Database/backup exports must stay out of the frontend repository
+*.sql
+*.dump
+*.backup
+backups/
+restore-imports/
+staging/
+
+# Release acceptance/marker records belong in the authoritative release archive, not school main
+R*_ACCEPTANCE*.md
+R*_FINAL_*RECORD*.md
+R*_LIVE_DEPLOYMENT_MARKER.md
+R*_CANDIDATE*.md
