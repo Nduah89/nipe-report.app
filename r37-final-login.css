@@ -1,51 +1,177 @@
-/* Edusentia v7.4.0 r37 final simplified login visual v10 clarity.
-   Production visual source: approved 1672x941 Edusentia academic login artwork.
-   High-fidelity background is rendered without blur, soft-focus filters or opacity reduction.
-   The real authentication card remains the only interactive login UI. Licence semantics are unchanged. */
-.auth-view{position:relative;isolation:isolate;overflow:hidden;background:#f5f8fe}
+/* Edusentia v7.4.0 r37 licensed-school login visual v11 zoom-safe.
+   The approved artwork contains a decorative mock login on its right side.
+   This layer permanently excludes that decorative region and anchors the real school login
+   in a responsive right-side layout, preventing duplicate login panels at browser zoom. */
+.auth-view{
+  position:relative;
+  isolation:isolate;
+  min-height:100vh;
+  min-height:100dvh;
+  overflow:hidden;
+  padding:clamp(24px,3vw,56px);
+  display:grid;
+  grid-template-columns:minmax(0,1.15fr) minmax(420px,.85fr);
+  align-items:center;
+  gap:clamp(24px,3vw,56px);
+  background:linear-gradient(118deg,#f8fbff 0%,#f2f7ff 48%,#e9f2ff 100%);
+}
 .auth-view .auth-hero-image{
-  position:absolute;inset:0;z-index:0;display:block;width:100%;height:100%;max-width:none;
-  object-fit:cover;object-position:center center;image-rendering:auto;opacity:1;filter:none;
-  pointer-events:none;user-select:none;background:#f5f8fe
+  position:absolute;
+  inset:0;
+  z-index:0;
+  display:block;
+  width:100%;
+  height:100%;
+  max-width:none;
+  object-fit:cover;
+  object-position:left center;
+  image-rendering:auto;
+  opacity:1;
+  filter:none;
+  pointer-events:none;
+  user-select:none;
+  background:#f5f8fe;
+  -webkit-mask-image:linear-gradient(90deg,#000 0%,#000 51%,rgba(0,0,0,.96) 53%,rgba(0,0,0,.58) 56%,transparent 61%);
+  mask-image:linear-gradient(90deg,#000 0%,#000 51%,rgba(0,0,0,.96) 53%,rgba(0,0,0,.58) 56%,transparent 61%);
 }
 .auth-view::before{
-  content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
-  background:linear-gradient(90deg,rgba(255,255,255,0),rgba(248,251,255,0) 50%,rgba(246,250,255,.025))
+  content:"";
+  position:absolute;
+  inset:0;
+  z-index:1;
+  pointer-events:none;
+  background:linear-gradient(90deg,rgba(245,249,255,0) 0%,rgba(245,249,255,0) 49%,rgba(245,249,255,.18) 53%,rgba(242,247,255,.92) 61%,#edf5ff 72%,#e7f1ff 100%);
 }
 .auth-view .auth-card{
-  position:relative;z-index:2;width:min(630px,calc(100vw - 48px));min-height:min(700px,calc(100vh - 58px));
-  margin:0;padding:clamp(38px,3.5vw,54px);display:flex;flex-direction:column;justify-content:center;
-  transform:translateX(clamp(255px,24.5vw,475px));background:rgba(255,255,255,.988);
-  border:1px solid rgba(255,255,255,.94);border-radius:26px;
-  box-shadow:0 40px 120px rgba(8,45,112,.22),0 0 0 1px rgba(8,45,112,.045);
-  -webkit-backdrop-filter:blur(12px) saturate(112%);backdrop-filter:blur(12px) saturate(112%)
+  grid-column:2;
+  justify-self:center;
+  align-self:center;
+  position:relative;
+  z-index:2;
+  width:clamp(520px,32vw,980px);
+  max-width:100%;
+  max-height:calc(100vh - 48px);
+  max-height:calc(100dvh - 48px);
+  margin:0;
+  padding:clamp(34px,2.8vw,54px);
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  overflow:auto;
+  overscroll-behavior:contain;
+  transform:none;
+  background:rgba(255,255,255,.988);
+  border:1px solid rgba(255,255,255,.96);
+  border-radius:26px;
+  box-shadow:0 32px 90px rgba(8,45,112,.22),0 0 0 1px rgba(8,45,112,.05);
+  -webkit-backdrop-filter:blur(12px) saturate(112%);
+  backdrop-filter:blur(12px) saturate(112%);
+  scrollbar-width:thin;
 }
-#authView .brand-lockup{flex-direction:column;justify-content:center;gap:9px;text-align:center;margin-bottom:22px}
-#authView .brand-lockup>img{width:96px;height:96px;object-fit:contain;filter:drop-shadow(0 9px 20px rgba(8,45,112,.12))}
+#authView .brand-lockup{
+  flex-direction:column;
+  justify-content:center;
+  gap:9px;
+  text-align:center;
+  margin:0 0 22px;
+}
+#authView .brand-lockup>img{
+  width:clamp(78px,5.5vw,104px);
+  height:clamp(78px,5.5vw,104px);
+  object-fit:contain;
+  filter:drop-shadow(0 9px 20px rgba(8,45,112,.12));
+}
 #authView .brand-lockup>div{min-width:0}
-#authView .brand-lockup h1{margin:0 0 5px;color:#082d70;font-size:clamp(27px,2vw,33px);line-height:1.1}
+#authView .brand-lockup h1{
+  margin:0 0 5px;
+  color:#082d70;
+  font-size:clamp(27px,2vw,34px);
+  line-height:1.1;
+}
 #authView .brand-lockup p{margin:0;color:#65728a}
 #authView .brand-lockup small{justify-content:center}
 #authView #loginForm{gap:17px}
-#authView #loginForm::before{content:"Welcome Back";display:block;margin:0 0 -2px;color:#082d70;font-size:clamp(31px,2.25vw,38px);line-height:1.12;font-weight:850;letter-spacing:-.028em;text-align:center}
-#authView #loginForm .field:first-of-type::before{content:"Sign in to continue to your account";display:block;margin:-3px 0 13px;color:#65728a;font-size:14px;font-weight:500;text-align:center}
-#mfaView .auth-card{width:min(570px,calc(100vw - 48px));min-height:auto}
-@media(max-width:1280px){.auth-view .auth-card{transform:translateX(22vw)}}
-@media(max-width:1040px){
-  .auth-view{padding:28px 22px}
-  .auth-view .auth-hero-image{object-position:left center;opacity:1;filter:none}
-  .auth-view::before{background:rgba(247,250,255,.12)}
-  .auth-view .auth-card{transform:none}
+#authView #loginForm::before{
+  content:"Welcome Back";
+  display:block;
+  margin:0 0 -2px;
+  color:#082d70;
+  font-size:clamp(31px,2.25vw,40px);
+  line-height:1.12;
+  font-weight:850;
+  letter-spacing:-.028em;
+  text-align:center;
+}
+#authView #loginForm .field:first-of-type::before{
+  content:"Sign in to continue to your account";
+  display:block;
+  margin:-3px 0 13px;
+  color:#65728a;
+  font-size:14px;
+  font-weight:500;
+  text-align:center;
+}
+.auth-view .field>span{color:#253858;font-weight:750}
+.auth-view input,.auth-view .password-wrap{
+  min-height:52px;
+  border-color:#cbd6e6;
+  background:#fff;
+  box-shadow:0 1px 0 rgba(8,45,112,.025);
+}
+.auth-view input:focus,.auth-view .password-wrap:focus-within{
+  border-color:var(--blue);
+  box-shadow:0 0 0 3px rgba(13,94,200,.14);
+}
+.auth-view .button.primary{
+  min-height:54px;
+  margin-top:4px;
+  border-radius:10px;
+  background:linear-gradient(135deg,#0a459a,#1269d3);
+  box-shadow:0 14px 30px rgba(13,94,200,.27);
+}
+#mfaView .auth-card{
+  width:clamp(460px,28vw,760px);
+  min-height:auto;
+}
+#mfaView .brand-lockup{margin-bottom:24px}
+@media(max-width:1100px){
+  .auth-view{
+    padding:28px 22px;
+    grid-template-columns:1fr;
+    place-items:center;
+    background:linear-gradient(145deg,#eef5ff,#fff 52%,#edf4fb);
+  }
+  .auth-view .auth-hero-image{
+    object-position:left center;
+    -webkit-mask-image:linear-gradient(90deg,rgba(0,0,0,.54),rgba(0,0,0,.28) 44%,transparent 72%);
+    mask-image:linear-gradient(90deg,rgba(0,0,0,.54),rgba(0,0,0,.28) 44%,transparent 72%);
+  }
+  .auth-view::before{background:rgba(247,250,255,.58)}
+  .auth-view .auth-card,#mfaView .auth-card{
+    grid-column:1;
+    width:min(100%,560px);
+    max-height:calc(100dvh - 44px);
+    transform:none;
+  }
 }
 @media(max-width:680px){
   .auth-view{padding:18px 14px}
-  .auth-view .auth-hero-image{object-position:left center;opacity:1;filter:none}
-  .auth-view::before{background:rgba(250,252,255,.18)}
-  .auth-view .auth-card{width:min(100%,520px);min-height:auto;padding:30px 22px;border-radius:20px}
+  .auth-view .auth-hero-image{display:none}
+  .auth-view::before{background:transparent}
+  .auth-view .auth-card{
+    width:min(100%,520px);
+    max-height:calc(100dvh - 28px);
+    min-height:auto;
+    padding:30px 22px;
+    border-radius:20px;
+  }
   #authView .brand-lockup>img{width:78px;height:78px}
 }
 @media(max-width:420px){
-  .auth-view{padding:12px 10px}.auth-view .auth-card{padding:24px 18px;border-radius:18px}
+  .auth-view{padding:12px 10px}
+  .auth-view .auth-card{max-height:calc(100dvh - 20px);padding:24px 18px;border-radius:18px}
   #authView .brand-lockup>img{width:68px;height:68px}
 }
-@media(prefers-reduced-motion:reduce){.auth-view .button,.auth-view .icon-button{transition:none}}
+@media(prefers-reduced-motion:reduce){
+  .auth-view .button,.auth-view .icon-button{transition:none}
+}
