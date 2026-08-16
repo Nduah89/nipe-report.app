@@ -1,0 +1,81 @@
+name: Promote same clarified Edusentia academic background v12
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/promote-same-background-v12.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch and verify Master clarified artwork against the preserved academic source
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://raw.githubusercontent.com/Nduah89/report-card-enterprise.app/main/assets/edusentia-login-background-final.webp" -o /tmp/final.webp
+          curl -fsSL "https://raw.githubusercontent.com/Nduah89/report-card-enterprise.app/82d236df2470bc2952114631b36a1ef552508769/assets/edusentia-login-background-final.webp" -o /tmp/source.webp
+          test "$(git hash-object /tmp/source.webp)" = "6f0fa56f3a00e9a4e82d2a7f40591c0c5254e9db"
+          test "$(stat -c%s /tmp/source.webp)" = "10712"
+          if command -v magick >/dev/null 2>&1; then
+            src_dim="$(magick identify -format '%wx%h' /tmp/source.webp)"
+            final_dim="$(magick identify -format '%wx%h' /tmp/final.webp)"
+            metric="$(magick compare -metric RMSE /tmp/source.webp /tmp/final.webp null: 2>&1 || true)"
+          elif command -v identify >/dev/null 2>&1; then
+            src_dim="$(identify -format '%wx%h' /tmp/source.webp)"
+            final_dim="$(identify -format '%wx%h' /tmp/final.webp)"
+            metric="$(compare -metric RMSE /tmp/source.webp /tmp/final.webp null: 2>&1 || true)"
+          else
+            sudo apt-get update
+            sudo apt-get install -y imagemagick
+            src_dim="$(identify -format '%wx%h' /tmp/source.webp)"
+            final_dim="$(identify -format '%wx%h' /tmp/final.webp)"
+            metric="$(compare -metric RMSE /tmp/source.webp /tmp/final.webp null: 2>&1 || true)"
+          fi
+          test "$src_dim" = "1672x941"
+          test "$final_dim" = "$src_dim"
+          size="$(stat -c%s /tmp/final.webp)"
+          test "$size" -ge 30000
+          test "$size" -le 500000
+          test "$(head -c 4 /tmp/final.webp)" = "RIFF"
+          test "$(dd if=/tmp/final.webp bs=1 skip=8 count=4 status=none)" = "WEBP"
+          norm="$(printf '%s' "$metric" | sed -n 's/.*(\([0-9.eE+-]*\)).*/\1/p')"
+          test -n "$norm"
+          python3 - "$norm" <<'PY'
+          import sys
+          n=float(sys.argv[1])
+          assert n <= 0.12, n
+          print('normalized_rmse=', n)
+          PY
+          echo "final_bytes=$size"
+          echo "final_git_blob=$(git hash-object /tmp/final.webp)"
+          sha256sum /tmp/final.webp
+
+      - name: Install verified artwork without touching school identity or licence bindings
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp /tmp/final.webp assets/edusentia-login-background-final.webp
+          sed -i 's/r37-final-ui-11-asset-repair/r37-final-ui-12-same-background-sharpened/g' index.html service-worker.js
+          grep -q 'r37-final-ui-12-same-background-sharpened' index.html
+          grep -q 'r37-final-ui-12-same-background-sharpened' service-worker.js
+          rm -f .github/workflows/promote-same-background-v12.yml
+
+      - name: Commit verified school visual update
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Use same clarified Edusentia academic background"
+          git push
